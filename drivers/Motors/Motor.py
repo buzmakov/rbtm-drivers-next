@@ -2,7 +2,7 @@ import logging
 
 
 try:
-    from pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, controller_name_t
+    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, controller_name_t
 except ImportError as err:
     logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the working directory. See developers' documentation for details.")
     exit()
@@ -11,7 +11,7 @@ except OSError as err:
     exit()
 
 
-class Motor(object):
+class HWMotor(object):
     def __init__(self, device_name, steps_on_deg, speed, acceleration):
         self.device_name = device_name
         self.steps_on_deg = steps_on_deg
@@ -20,8 +20,7 @@ class Motor(object):
 
     def open(self):
         device_id = lib.open_device(self.device_name)
-
-        if device_id == lib.device_undefined:
+        if device_id == -1: # lib.device_undefined: #TODO: checkit
             logging.error("Motor.open(): open failed")
 
         edges_settings = lib.get_edges_settings(device_id)
