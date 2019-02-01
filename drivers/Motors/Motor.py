@@ -19,7 +19,12 @@ class HWMotor(object):
         self.acceleration = acceleration
 
     def open(self):
-        device_id = lib.open_device(self.device_name)
+        if type(self.device_name) is str:
+            open_name = self.device_name.encode()
+        else:
+            open_name = self.device_name
+
+        device_id = lib.open_device(self.open_name)
         if device_id == -1: # lib.device_undefined: #TODO: checkit
             logging.error("Motor.open(): open failed")
 

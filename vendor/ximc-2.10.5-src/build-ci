@@ -1,0 +1,94 @@
+#!/bin/sh
+# jenkins build (not checked with hudson, different variable names)
+set -e
+
+build_debian()
+{
+	./build.sh cleandist
+	./build.sh libdeb
+}
+
+build_opensuse()
+{
+	./build.sh cleandist
+	./build.sh librpm
+}
+
+build_macosx()
+{
+	[ -z "`command -v pdflatex`" ] && PATH=$PATH:/usr/texbin
+	./build.sh cleandist
+	./build.sh libosx
+}
+
+build_docs()
+{
+	./build.sh cleandist
+	./build.sh onlydocs
+}
+
+makedist()
+{
+	./build.sh makedist
+}
+
+# ---------------------
+# entry point
+
+[ -n "$MERCURIAL" ] || MERCURIAL=hg
+
+echo Using jenkins at $JENKINS_HOME, node $NODE_NAME
+echo Using parameters $NODE_LABELS, starter $0, command line $*
+echo Use hg revision $XIMC_REVISION
+
+echo hgup effective version:
+$MERCURIAL identify
+
+# dist override all other
+if [ "$1" = "dist" ] ; then
+	echo Okay, they call dist
+	if [ -d "dist" ] ; then
+		chmod -R u+rX ximc
+		rm -rf ximc
+	fi
+	ls -1 results-*.tar | xargs -L1 -t tar xfv
+	echo Before
+	ls -lR ximc || true
+	chmod -R u+rX ximc
+	echo After
+	ls -lR ximc || true
+	makedist
+
+elif [ "$1" = "docs" ] ; then
+	[ -n "$NODE_NAME" ] || NODE_NAME=docs
+	build_docs
+	tar cf results-dist-docs.tar ximc
+
+elif [ "$1" = "abicc-dump" ] ; then
+	[ -n "$NODE_NAME" ] || NODE_NAME=abicc-dump
+	./build.sh abicc-dump
+
+else
+	# usual build. node labels are passed by env variable
+	for label in $NODE_LABELS
+	do
+		if [ "$label" = "debian" ] ; then
+			[ -n "$NODE_NAME" ] || NODE_NAME=$label
+			build_debian
+			tar cf results-dist-$NODE_NAME.tar ximc
+			break
+		elif [ "$label" = "suse" ] ; then
+			[ -n "$NODE_NAME" ] || NODE_NAME=$label
+			build_opensuse
+			tar cf results-dist-$NODE_NAME.tar ximc
+			break
+		elif [ "$label" = "osx" ] ; then
+			[ -n "$NODE_NAME" ] || NODE_NAME=$label
+			build_macosx
+			tar cf results-dist-$NODE_NAME.tar ximc
+			break
+		fi
+	done
+fi
+
+echo Build completed

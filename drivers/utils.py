@@ -23,7 +23,7 @@ def get_source_config():
 
 
 def get_angle_motor_config():
-    port = get_info_from_config("angle motor", "port").encode()
+    port = get_info_from_config("angle motor", "port")
     step_360 = get_info_from_config("angle motor", "step_in_360")
     speed = get_info_from_config("angle motor", "speed")
     acceleration = get_info_from_config("angle motor", "acceleration")

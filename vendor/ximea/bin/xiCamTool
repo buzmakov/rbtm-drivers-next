@@ -1,0 +1,11 @@
+#!/bin/bash
+pushd "$(dirname "$0")" >/dev/null
+ximea_dir="$(dirname "$PWD")"
+popd > /dev/null
+if [ -z "$LD_LIBRARY_PATH" ]
+then
+	export LD_LIBRARY_PATH="$ximea_dir/CamTool"
+else
+	export LD_LIBRARY_PATH="$ximea_dir/CamTool:$LD_LIBRARY_PATH"
+fi
+exec $ximea_dir/CamTool/xiCamTool
