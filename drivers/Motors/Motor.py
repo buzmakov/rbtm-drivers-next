@@ -162,6 +162,8 @@ class HWMotor(object):
         return res
 
 
+# TODO: add get/set status
+
 def print_test_info():
     print("Library loaded")
     sbuf = create_string_buffer(64)
