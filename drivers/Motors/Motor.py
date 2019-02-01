@@ -2,7 +2,8 @@ import logging
 
 
 try:
-    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, controller_name_t
+    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, \
+        controller_name_t, device_information_t, string_at
 except ImportError as err:
     logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the working directory. See developers' documentation for details.")
     exit()
@@ -33,6 +34,23 @@ class HWMotor(object):
         lib.set_edges_settings(device_id, edges_settings)
 
         return device_id
+
+    def test_info(self):
+        print("\nGet device info")
+        x_device_information = device_information_t()
+        result = lib.get_device_information(self.device_id, byref(x_device_information))
+        print("Result: " + repr(result))
+        if result == Result.Ok:
+            print("Device information:")
+            print(" Manufacturer: " +
+                  repr(string_at(x_device_information.Manufacturer).decode()))
+            print(" ManufacturerId: " +
+                  repr(string_at(x_device_information.ManufacturerId).decode()))
+            print(" ProductDescription: " +
+                  repr(string_at(x_device_information.ProductDescription).decode()))
+            print(" Major: " + repr(x_device_information.Major))
+            print(" Minor: " + repr(x_device_information.Minor))
+            print(" Release: " + repr(x_device_information.Release))
 
     def close(self, device_id):
         result_code = lib.close_device(byref(cast(device_id, POINTER(c_int))))
