@@ -3,7 +3,7 @@ import logging
 
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, \
-        controller_name_t, device_information_t, string_at
+        controller_name_t, device_information_t, string_at, edges_settings_t
 except ImportError as err:
     logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the working directory. See developers' documentation for details.")
     exit()
@@ -25,15 +25,21 @@ class HWMotor(object):
         else:
             open_name = self.device_name
 
-        device_id = lib.open_device(self.open_name)
+        device_id = lib.open_device(open_name)
         if device_id == -1: # lib.device_undefined: #TODO: checkit
             logging.error("Motor.open(): open failed")
 
-        edges_settings = lib.get_edges_settings(device_id)
+        edges_settings = edges_settings_t()
+        result = lib.get_edges_settings(device_id, byref(edges_settings))
+        if not result == Result.Ok:
+            logging.error("Motor.get_edges_settings() error: {}".format(result))
+            #TODO: exit from here
         edges_settings.BorderFlags = 0
-        lib.set_edges_settings(device_id, edges_settings)
-
-        return device_id
+        result = lib.set_edges_settings(device_id, byref(edges_settings))
+        if not result == Result.Ok:
+            logging.error("Motor.set_edges_settings() error: {}".format(result))
+            #TODO: exit from here
+        self.device_id = device_id
 
     def test_info(self):
         print("\nGet device info")
@@ -52,15 +58,14 @@ class HWMotor(object):
             print(" Minor: " + repr(x_device_information.Minor))
             print(" Release: " + repr(x_device_information.Release))
 
-    def close(self, device_id):
-        result_code = lib.close_device(byref(cast(device_id, POINTER(c_int))))
+    def close(self):
+        result_code = lib.close_device(byref(cast(self.device_id, POINTER(c_int))))
         return result_code
 
     def get_position(self):
         logging.debug("Motor.get_position() starting...")
-        device_id = self.open()
         x_pos = get_position_t()
-        result = lib.get_position(device_id, byref(x_pos))
+        result = lib.get_position(self.device_id, byref(x_pos))
         res = {}
         if result == Result.Ok:
             res['position'] = x_pos.Position
@@ -69,52 +74,45 @@ class HWMotor(object):
             res['error'] = result
             logging.error("Motor.get_position() error: {}".format(result))
 
-        self.close(device_id)
         logging.debug("Motor.get_position() finished.")
         return res
 
     def move_to_position(self, position, uposition=0):
         logging.debug("Motor.move_to_position() starting...")
-        device_id = self.open()
-        result = lib.command_move(device_id, position, uposition)
+        result = lib.command_move(self.device_id, position, uposition)
         res = {}
         if result == Result.Ok:
             res['error'] = None
         else:
             res['error'] = result
             logging.error("Motor.move_to_position() error: {}".format(result))
-        lib.command_wait_for_stop(device_id, 10)
-        self.close(device_id)
+        lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_to_position() finished.")
         return res
 
     def move_by_delta(self, step, ustep=0):
         logging.debug("Motormove_by_delta() starting...")
-        device_id = self.open()
-        result = lib.command_movr(device_id, step, ustep)
+        result = lib.command_movr(self.device_id, step, ustep)
         res = {}
         if result == Result.Ok:
             res['error'] = None
         else:
             res['error'] = result
             logging.error("Motor.move_by_delta() error: {}".format(result))
-        lib.command_wait_for_stop(device_id, 10)
-        self.close(device_id)
+        lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_by_delta() finished")
         return res
 
     def set_zero(self):
         logging.debug("Motor.set_zero() starting...")
-        device_id = self.open()
-        result = lib.command_zero(device_id)
+        result = lib.command_zero(self.device_id)
         res = {}
         if result == Result.Ok:
             res['error'] = None
         else:
             res['error'] = result
             logging.error("Motor.set_zero() error: {}".format(result))
-        lib.command_wait_for_stop(device_id, 10)
-        self.close(device_id)
+        lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.set_zero() finished")
         return res
 

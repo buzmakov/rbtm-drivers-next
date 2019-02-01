@@ -7,4 +7,7 @@ def test_angle_motor():
     print(config)
     motor = HWMotor(config['port'], config['step_360'],
             config['speed'], config['acceleration'])
+    motor.open()
     motor.test_info()
+    print(motor.get_position())
+    motor.close()
