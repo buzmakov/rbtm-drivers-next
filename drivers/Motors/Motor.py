@@ -2,24 +2,30 @@ import logging
 
 
 try:
-    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, EnumerateFlags, \
-        controller_name_t, device_information_t, string_at, edges_settings_t
+    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, \
+        EnumerateFlags, controller_name_t, device_information_t, string_at, edges_settings_t, engine_settings_t, \
+        MicrostepMode, status_t
 except ImportError as err:
-    logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the working directory. See developers' documentation for details.")
+    logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the "
+                  "working directory. See developers' documentation for details.")
     exit()
 except OSError as err:
-    logging.error("Can't load libximc library. Please add all shared libraries to the appropriate places (next to pyximc.py on Windows). It is decribed in detail in developers' documentation. On Linux make sure you installed libximc-dev package.")
+    logging.error("Can't load libximc library. Please add all shared libraries to the appropriate places (next to "
+                  "pyximc.py on Windows). It is decribed in detail in developers' documentation. On Linux make sure "
+                  "you installed libximc-dev package.")
     exit()
 
 
 class HWMotor(object):
-    def __init__(self, device_name, steps_on_deg, speed, acceleration):
+    def __init__(self, device_name, speed, acceleration, steps_on_deg=None):
         self.device_name = device_name
         self.steps_on_deg = steps_on_deg
         self.speed = speed
         self.acceleration = acceleration
 
     def open(self):
+        logging.debug("Motor.open() starting...")
+
         if type(self.device_name) is str:
             open_name = self.device_name.encode()
         else:
@@ -33,34 +39,53 @@ class HWMotor(object):
         result = lib.get_edges_settings(device_id, byref(edges_settings))
         if not result == Result.Ok:
             logging.error("Motor.get_edges_settings() error: {}".format(result))
+            logging.debug("Motor.open() failed")
             #TODO: exit from here
         edges_settings.BorderFlags = 0
         result = lib.set_edges_settings(device_id, byref(edges_settings))
         if not result == Result.Ok:
             logging.error("Motor.set_edges_settings() error: {}".format(result))
+            logging.debug("Motor.open() failed")
             #TODO: exit from here
         self.device_id = device_id
-
-    def test_info(self):
-        print("\nGet device info")
-        x_device_information = device_information_t()
-        result = lib.get_device_information(self.device_id, byref(x_device_information))
-        print("Result: " + repr(result))
-        if result == Result.Ok:
-            print("Device information:")
-            print(" Manufacturer: " +
-                  repr(string_at(x_device_information.Manufacturer).decode()))
-            print(" ManufacturerId: " +
-                  repr(string_at(x_device_information.ManufacturerId).decode()))
-            print(" ProductDescription: " +
-                  repr(string_at(x_device_information.ProductDescription).decode()))
-            print(" Major: " + repr(x_device_information.Major))
-            print(" Minor: " + repr(x_device_information.Minor))
-            print(" Release: " + repr(x_device_information.Release))
+        logging.debug("Motor.open() finished")
 
     def close(self):
         result_code = lib.close_device(byref(cast(self.device_id, POINTER(c_int))))
         return result_code
+
+    def get_info(self):
+        logging.debug("Get device info")
+        x_device_information = device_information_t()
+        result = lib.get_device_information(self.device_id, byref(x_device_information))
+        print("Result: " + repr(result))
+        res = {}
+        if result == Result.Ok:
+            res["Manufacturer"] = repr(string_at(x_device_information.Manufacturer).decode())
+            res["ManufacturerId"] = repr(string_at(x_device_information.ManufacturerId).decode())
+            res["ProductDescription"] = repr(string_at(x_device_information.ProductDescription).decode())
+            res["Major"] = repr(x_device_information.Major)
+            res["Minor"] = repr(x_device_information.Minor)
+            res["Release"] = repr(x_device_information.Release)
+            res["error"] = None
+        else:
+            res['error'] = result
+        return res
+
+    def get_status(self):
+        logging.debug("Get status")
+        x_status = status_t()
+        result = lib.get_status(self.device_id, byref(x_status))
+        res = {}
+        if result == Result.Ok:
+            res["Status.Ipwr"] = repr(x_status.Ipwr)
+            res["Status.Upwr"] = repr(x_status.Upwr)
+            res["Status.Iusb"] = repr(x_status.Iusb)
+            res["Status.Flags"] = repr(hex(x_status.Flags))
+            res['error'] = None
+        else:
+            res['error'] = result
+        return res
 
     def get_position(self):
         logging.debug("Motor.get_position() starting...")
@@ -114,6 +139,26 @@ class HWMotor(object):
             logging.error("Motor.set_zero() error: {}".format(result))
         lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.set_zero() finished")
+        return res
+
+    def set_microstep_mode_256(self):
+        logging.debug("\nSet microstep mode to 256")
+        # Create engine settings structure
+        res = {'error': None}
+        eng = engine_settings_t()
+        # Get current engine settings from controller
+        result = lib.get_engine_settings(self.device_id, byref(eng))
+        if not result == Result.Ok:
+            result['error'] = result
+            return result
+        # Change MicrostepMode parameter to MICROSTEP_MODE_FRAC_256
+        # (use MICROSTEP_MODE_FRAC_128, MICROSTEP_MODE_FRAC_64 ... for other microstep modes)
+        eng.MicrostepMode = MicrostepMode.MICROSTEP_MODE_FRAC_256
+        # Write new engine settings to controller
+        result = lib.set_engine_settings(self.device_id, byref(eng))
+        # Print command return status. It will be 0 if all is OK
+        if not result == Result.Ok:
+            res['error'] = result
         return res
 
 
