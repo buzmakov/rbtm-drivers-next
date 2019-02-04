@@ -291,7 +291,7 @@ class HWSource(object):
         if options is None:
             options = ['is_on_high_voltage', 'id', 'tube_name',
                        'actual_voltage', 'nominal_voltage',
-                       'actual_current', 'nominal_current']
+                       'actual_current', 'nominal_current', 'status', 'last_error']
         res = {}
         if not isinstance(options, (list, tuple)):
             options = [options, ]
@@ -311,6 +311,10 @@ class HWSource(object):
                 s = self.get_actual_current()
             elif option == 'nominal_current':
                 s = self.get_nominal_current()
+            elif option == 'status':
+                s = self.get_status()
+            elif option == 'last_error':
+                s = self.get_error()
             else:
                 s = {'error': 'Unsupported option'}
             res[option] = s
