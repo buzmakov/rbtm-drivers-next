@@ -8,10 +8,6 @@ command_timeout = 5  # wait 2 seconds for setting voltage
 TIMEOUT = 10
 
 
-def handle_error(s1, s2):
-    print(s1, s2)
-
-
 class HWSource(object):
     def __init__(self, tty_name):
         logging.debug('Source.__init__ starting...')
@@ -24,10 +20,24 @@ class HWSource(object):
         self.serial_port.close()
 
     def wait_for_high_voltage(self):
+        if not self.is_on_high_volatge():
+            return
+
         n = 0
         while n < 10 or not self.get_status()['power status']['voltage kv norm']:
             sleep(1)
             n = n + 1
+
+    def wait_for_current(self):
+        if not self.is_on_high_volatge():
+            return
+
+        n = 0
+        while n < 10 or not self.get_status()['power status']['current ma norm']:
+            sleep(1)
+            n = n + 1
+        return
+
 
     def on_high_voltage(self):
         logging.debug('Source.on_high_voltage() starting...')
@@ -46,12 +56,20 @@ class HWSource(object):
 
     def warmup(self):
         logging.debug('Source.warmup() starting...')
-        self.serial_port.write("WU:4\n".encode())
+        voltage = self.get_nominal_voltage()['nominal_voltage']
+        self.serial_port.write("WU:4,{}\n".format(
+            str(int(round(voltage))).zfill(3)).encode())
+        error = self.get_error()
+
+        self.serial_port.write("HV:1\n".encode())
         error = self.get_error()
         if error is not None:
             logging.error("Source.warmup() error: {}".format(error))
 
-        while self.get_status()['warming status']['in progress']:
+        while self.get_status()['warming status']['in progress'] or \
+            self.get_status()['warming status']['warming from kb'] or \
+            self.get_status()['warming status']['warming from pc'] or \
+            self.get_status()['power status']['voltage kv norm']:
             sleep(5)
 
         logging.debug('Source.warmup() finished.')
@@ -73,7 +91,7 @@ class HWSource(object):
         logging.debug('Source.is_on_high_voltage() starting...')
         status = self.get_status()
         logging.debug('Sourceis_on_high_voltage() finished.')
-        return {'is_on_high_volatge': status['power status']['high volatge on'], 'error': status}
+        return status['power status']['high voltage on']
 
     def read_status_word(self, word_number):
         logging.debug('Source.read_status_word() starting...')
@@ -186,12 +204,13 @@ class HWSource(object):
         logging.debug('Source.set_current() starting...')
         command = "SC:{}\n".format(str(current * 1000).zfill(6)).encode()
         self.serial_port.write(command)
-        sleep(command_timeout)
+        
         error = self.get_error()
         if error is not None:
             logging.error(
                 "Source.set_current() error: {}".format(error)
             )
+        self.wait_for_current()
         logging.debug('Source.set_current() finished.')
         return {'error': error}
 
