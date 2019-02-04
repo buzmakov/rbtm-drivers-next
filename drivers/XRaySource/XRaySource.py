@@ -36,7 +36,7 @@ class HWSource(object):
         if error is not None:
             logging.error("Source.on_high_voltage() error: {}".format(error))
 
-        if error['error_code'] == 106:
+        if error['code'] == 106:
             self.warmup()
             self.on_high_voltage()
 
@@ -174,7 +174,7 @@ class HWSource(object):
                 "Source.set_voltage() error: {}".format(error)
             )
 
-        if error['error_code'] == 106:
+        if error['code'] == 106:
             self.warmup()
             self.set_voltage(voltage)
 
