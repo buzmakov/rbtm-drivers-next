@@ -51,7 +51,7 @@ class HWSource(object):
         if error is not None:
             logging.error("Source.warmup() error: {}".format(error))
 
-        while self.get_status()[['warming status']]['in progress']:
+        while self.get_status()['warming status']['in progress']:
             sleep(5)
 
         logging.debug('Source.warmup() finished.')
