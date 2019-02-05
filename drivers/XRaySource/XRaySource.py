@@ -25,6 +25,12 @@ class HWSource(object):
             sleep(1)
             n = n + 1
 
+    def wait_for_high_voltage_down(self):
+        n = 0
+        while n < 10 and self.is_on_high_volatge():
+            sleep(1)
+            n = n + 1
+
     def wait_for_voltage(self):
         if not self.is_on_high_volatge():
             return
@@ -90,7 +96,7 @@ class HWSource(object):
         if error is not None:
             logging.error("Source.off_high_voltage() error: {}".format(error))
 
-        self.wait_for_high_voltage()
+        self.wait_for_high_voltage_down()
 
         logging.debug('Source.off_high_voltage() finished.')
         return {'error': error}
@@ -118,8 +124,8 @@ class HWSource(object):
     def get_status(self):
         sw_1 = self.read_status_word(1)
         res = {'power status': {
-            'external pc control': sw_1 & 128 == 1,
-            'high voltage on': sw_1 & 64 == 1,
+            'external pc control': not sw_1 & 128 == 0,
+            'high voltage on': not sw_1 & 64 == 0,
             'cooling system ok': sw_1 & 32 == 0,
             'buffer battery ok': sw_1 & 16 == 0,
             'current ma norm': sw_1 & 8 == 0,
@@ -128,10 +134,10 @@ class HWSource(object):
 
         sw_6 = self.read_status_word(6)
         res['warming status'] = {
-            'in progress': sw_6 & 8 == 1,
-            'warming interrupted': sw_6 & 4 == 1,
-            'warming from pc': sw_6 & 2 == 1,
-            'warming from kb': sw_6 & 1 == 1
+            'in progress': not sw_6 & 8 == 0,
+            'warming interrupted': not sw_6 & 4 == 0,
+            'warming from pc': not sw_6 & 2 == 0,
+            'warming from kb': not sw_6 & 1 == 0
         }
 
         # sw_12 = self.read_status_word(12)
