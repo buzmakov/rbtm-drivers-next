@@ -35,10 +35,10 @@ def test_on_hv():
     config = get_source_config()
     s = HWSource(config['port'])
     s.off_high_voltage()
-    assert not s.get_state('is_on_high_voltage')
+    assert not s.get_state('is_on_high_voltage')['is_on_high_voltage']
 
     s.on_high_voltage()
-    assert s.get_state('is_on_high_voltage')
+    assert s.get_state('is_on_high_voltage')['is_on_high_voltage']
 
 # print(s.get_error())
 #
