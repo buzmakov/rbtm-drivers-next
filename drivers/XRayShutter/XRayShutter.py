@@ -97,7 +97,7 @@ class HWShutter(object):
                 "Shutter.is_open(): Can't get relay state, got {}".format(relay_state))
         logging.debug('Shutter.is_open() finished.')
 
-        return {'is_open': relay_state, 'error': error}
+        return {'value': relay_state, 'error': error}
 
     def get_state(self, options=None):
         if options is None:

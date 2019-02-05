@@ -90,7 +90,7 @@ class HWSource(object):
     def is_on_high_volatge(self):
         logging.debug('Source.is_on_high_voltage() starting...')
         status = self.get_status()
-        logging.debug('Sourceis_on_high_voltage() finished.')
+        logging.debug('Source.is_on_high_voltage() finished.')
         return status['power status']['high voltage on']
 
     def read_status_word(self, word_number):
@@ -140,7 +140,7 @@ class HWSource(object):
             logging.error("Source.get_nominal_voltage() error: {}".format(error))
         logging.debug('Source.get_nominal_voltage() finished.')
         res = self.get_number(answer) / 1000
-        return {'nominal_voltage': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def get_actual_voltage(self):
         logging.debug('Source.get_actual_voltage() starting...')
@@ -153,7 +153,7 @@ class HWSource(object):
             )
         logging.debug('Source.get_actual_voltage() finished.')
         res = self.get_number(answer) / 1000
-        return {'actual_voltage': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def get_nominal_current(self):
         logging.debug('Source.get_nominal_current() starting...')
@@ -166,7 +166,7 @@ class HWSource(object):
             )
         logging.debug('Source.get_nominal_current() finished.')
         res = self.get_number(answer) / 1000
-        return {'nominal_current': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def get_actual_current(self):
         logging.debug('Source.get_actual_current) starting...')
@@ -179,7 +179,7 @@ class HWSource(object):
             )
         logging.debug('Source.get_actual_current() finished.')
         res = self.get_number(answer) / 1000
-        return {'actual_current': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def set_voltage(self, voltage):
         logging.debug('Source.set_voltage() starting...')
@@ -225,7 +225,7 @@ class HWSource(object):
             )
         logging.debug('Source.get_id() finished.')
         res = answer
-        return {'id': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def get_tube_name(self):
         logging.debug('Source.get_nominal_voltage() starting...')
@@ -238,7 +238,7 @@ class HWSource(object):
             )
         logging.debug('Source.get_actual_voltage() finished.')
         res = answer
-        return {'tube_name': res, 'error': error}
+        return {'value': res, 'error': error}
 
     def get_error(self):
         status_strings = {

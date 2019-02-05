@@ -18,14 +18,27 @@ def test_xraysource():
 
     print('Set voltage to:', 20)
     s.set_voltage(20)
+    assert s.get_actual_voltage()['value'] == 20
 
     pprint(s.get_state())
     s.set_current(10)
+    assert s.get_actual_current()['value'] == 10
     pprint(s.get_state())
 
     time.sleep(2)
     s.off_high_voltage()
+    assert not s.is_on_high_volatge()['value']
     print('Is hight voltage on:', s.is_on_high_volatge())
+
+
+def test_on_hv():
+    config = get_source_config()
+    s = HWSource(config['port'])
+    s.off_high_voltage()
+    assert not s.get_state('is_on_high_voltage')
+
+    s.on_high_voltage()
+    assert s.get_state('is_on_high_voltage')
 
 # print(s.get_error())
 #
