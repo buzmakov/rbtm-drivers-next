@@ -38,7 +38,6 @@ class HWSource(object):
             n = n + 1
         return
 
-
     def on_high_voltage(self):
         logging.debug('Source.on_high_voltage() starting...')
         self.serial_port.write("HV:1\n".encode())
@@ -46,34 +45,34 @@ class HWSource(object):
         if error is not None:
             logging.error("Source.on_high_voltage() error: {}".format(error))
 
-        if error['code'] == 106:
-            self.warmup()
-            self.on_high_voltage()
+        # if error['code'] == 106:
+        #     self.warmup()
+        #     self.on_high_voltage()
 
         self.wait_for_high_voltage()
         logging.debug('Source.on_high_voltage() finished.')
         return {'error': error}
 
-    def warmup(self):
-        logging.debug('Source.warmup() starting...')
-        voltage = self.get_nominal_voltage()['nominal_voltage']
-        self.serial_port.write("WU:4,{}\n".format(
-            str(int(round(voltage))).zfill(3)).encode())
-        error = self.get_error()
-
-        self.serial_port.write("HV:1\n".encode())
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.warmup() error: {}".format(error))
-
-        while self.get_status()['warming status']['in progress'] or \
-            self.get_status()['warming status']['warming from kb'] or \
-            self.get_status()['warming status']['warming from pc'] or \
-            self.get_status()['power status']['voltage kv norm']:
-            sleep(5)
-
-        logging.debug('Source.warmup() finished.')
-        return {'error': error}
+    # def warmup(self):
+    #     logging.debug('Source.warmup() starting...')
+    #     voltage = self.get_nominal_voltage()['nominal_voltage']
+    #     self.serial_port.write("WU:4,{}\n".format(
+    #         str(int(round(voltage))).zfill(3)).encode())
+    #     error = self.get_error()
+    #
+    #     self.serial_port.write("HV:1\n".encode())
+    #     error = self.get_error()
+    #     if error is not None:
+    #         logging.error("Source.warmup() error: {}".format(error))
+    #
+    #     while self.get_status()['warming status']['in progress'] or \
+    #         self.get_status()['warming status']['warming from kb'] or \
+    #         self.get_status()['warming status']['warming from pc'] or \
+    #         self.get_status()['power status']['voltage kv norm']:
+    #         sleep(5)
+    #
+    #     logging.debug('Source.warmup() finished.')
+    #     return {'error': error}
 
     def off_high_voltage(self):
         logging.debug('Source.off_high_voltage() starting...')
@@ -192,9 +191,9 @@ class HWSource(object):
                 "Source.set_voltage() error: {}".format(error)
             )
 
-        if error['code'] == 106:
-            self.warmup()
-            self.set_voltage(voltage)
+        # if error['code'] == 106:
+        #     self.warmup()
+        #     self.set_voltage(voltage)
 
         self.wait_for_high_voltage()
         logging.debug('Source.set_voltage() finished.')
@@ -204,7 +203,7 @@ class HWSource(object):
         logging.debug('Source.set_current() starting...')
         command = "SC:{}\n".format(str(current * 1000).zfill(6)).encode()
         self.serial_port.write(command)
-        
+
         error = self.get_error()
         if error is not None:
             logging.error(
