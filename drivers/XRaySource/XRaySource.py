@@ -20,6 +20,12 @@ class HWSource(object):
         self.serial_port.close()
 
     def wait_for_high_voltage(self):
+        n = 0
+        while n < 10 or self.is_on_high_volatge():
+            sleep(1)
+            n = n + 1
+
+    def wait_for_voltage(self):
         if not self.is_on_high_volatge():
             return
 
@@ -138,7 +144,7 @@ class HWSource(object):
         if error is not None:
             logging.error("Source.get_nominal_voltage() error: {}".format(error))
         logging.debug('Source.get_nominal_voltage() finished.')
-        res = self.get_number(answer) / 1000
+        res = self.get_number(answer) / 1000.
         return {'value': res, 'error': error}
 
     def get_actual_voltage(self):
@@ -151,7 +157,7 @@ class HWSource(object):
                 "Source.get_actual_voltage() error: {}".format(error)
             )
         logging.debug('Source.get_actual_voltage() finished.')
-        res = self.get_number(answer) / 1000
+        res = self.get_number(answer) / 1000.
         return {'value': res, 'error': error}
 
     def get_nominal_current(self):
@@ -164,7 +170,7 @@ class HWSource(object):
                 "Source.get_nominal_current() error: {}".format(error)
             )
         logging.debug('Source.get_nominal_current() finished.')
-        res = self.get_number(answer) / 1000
+        res = self.get_number(answer) / 1000.
         return {'value': res, 'error': error}
 
     def get_actual_current(self):
@@ -177,7 +183,7 @@ class HWSource(object):
                 "Source.get_actual_current() error: {}".format(error)
             )
         logging.debug('Source.get_actual_current() finished.')
-        res = self.get_number(answer) / 1000
+        res = self.get_number(answer) / 1000.
         return {'value': res, 'error': error}
 
     def set_voltage(self, voltage):
@@ -195,7 +201,7 @@ class HWSource(object):
         #     self.warmup()
         #     self.set_voltage(voltage)
 
-        self.wait_for_high_voltage()
+        self.wait_for_voltage()
         logging.debug('Source.set_voltage() finished.')
         return {'error': error}
 
