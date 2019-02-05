@@ -56,6 +56,9 @@ class HWSource(object):
         #     self.on_high_voltage()
 
         self.wait_for_high_voltage()
+        self.wait_for_current()
+        self.wait_for_voltage()
+
         logging.debug('Source.on_high_voltage() finished.')
         return {'error': error}
 
