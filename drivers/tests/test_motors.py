@@ -11,6 +11,8 @@ def test_angle_motor():
     print(motor.get_position())
     motor.close()
 
+    # TODO: add test position
+    # TODO: add test set to zero
 
 def test_horizontal_motor():
     config = get_horizontal_motor_config()
