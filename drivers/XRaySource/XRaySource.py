@@ -21,7 +21,7 @@ class HWSource(object):
 
     def wait_for_high_voltage(self):
         n = 0
-        while n < 10 or self.is_on_high_volatge():
+        while n < 10 and self.is_on_high_volatge():
             sleep(1)
             n = n + 1
 
@@ -30,7 +30,7 @@ class HWSource(object):
             return
 
         n = 0
-        while n < 10 or not self.get_status()['power status']['voltage kv norm']:
+        while n < 10 and not self.get_status()['power status']['voltage kv norm']:
             sleep(1)
             n = n + 1
 
@@ -39,7 +39,7 @@ class HWSource(object):
             return
 
         n = 0
-        while n < 10 or not self.get_status()['power status']['current ma norm']:
+        while n < 10 and not self.get_status()['power status']['current ma norm']:
             sleep(1)
             n = n + 1
         return

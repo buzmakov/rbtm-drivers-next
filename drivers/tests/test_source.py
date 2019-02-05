@@ -25,9 +25,8 @@ def test_xraysource():
     assert s.get_actual_current()['value'] == 10
     pprint(s.get_state())
 
-    time.sleep(2)
     s.off_high_voltage()
-    assert not s.is_on_high_volatge()['value']
+    assert not s.is_on_high_volatge()
     print('Is hight voltage on:', s.is_on_high_volatge())
 
 
