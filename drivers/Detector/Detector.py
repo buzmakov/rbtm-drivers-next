@@ -27,7 +27,7 @@ class HWDetector(object):
             # # logging.info(self.cam.get_exposure_minimum())
             # logging.info(self.cam.get_target_temp())
             # logging.info(self.cam.get_temp_selector())
-            logging.info(self.cam.get_acq_frame_burst_count())
+            # logging.info(self.cam.get_acq_frame_burst_count())
             # TODO: add waiting for cooling
 
         except xiapi.Xi_error as err:
@@ -51,7 +51,7 @@ class HWDetector(object):
     def get_frames(self, exposure, number_frames=None):
         data = None
         try:
-            self.cam.set_exposure(exposure * 1e6)
+            self.cam.set_exposure(round(exposure * 1000000))
             img = xiapi.Image()
             self.cam.start_acquisition()
 
