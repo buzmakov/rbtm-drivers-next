@@ -2,6 +2,7 @@ import logging
 from .ximea import xiapi, xidefs
 import atexit
 
+
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
@@ -27,20 +28,41 @@ class HWDetector(object):
             # logging.info(self.cam.get_target_temp())
             # logging.info(self.cam.get_temp_selector())
             logging.info(self.cam.get_acq_frame_burst_count())
+            # TODO: add waiting for cooling
 
         except xiapi.Xi_error as err:
             logging.error("Detector.init() failed " + str(err))
-
-
 
     def close(self):
         try:
             self.cam.close_device()
         except xiapi.Xi_error as err:
             logging.error("Detector.close() failed " + str(err))
-    
+
     def get_sensor_temp(self):
         return self.cam.get_chip_temp()
-    
+
     def get_hous_temp(self):
         return self.cam.get_hous_temp()
+
+    def get_get_exposure(self):
+        return self.cam.get_exposure() / 1e6
+
+    def get_frames(self, exposure, number_frames=None):
+        data = None
+        try:
+            self.cam.set_exposure(exposure * 1e6)
+            img = xiapi.Image()
+            self.cam.start_acquisition()
+
+            for frame_numb in range(number_frames):
+                self.cam.get_image(img)
+                if frame_numb == 0:
+                    data = img.get_image_data_numpy()
+                else:
+                    data += img.get_image_data_numpy()  # TODO: check overflow
+
+        except xiapi.Xi_error as err:
+            logging.error("Detector.get_frame() failed " + str(err))
+
+        return data
