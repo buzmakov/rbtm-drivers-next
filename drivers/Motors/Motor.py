@@ -1,5 +1,5 @@
 import logging
-
+import atexit
 
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, \
@@ -22,6 +22,8 @@ class HWMotor(object):
         self.steps_on_deg = steps_on_deg
         self.speed = speed
         self.acceleration = acceleration
+        self.open()
+        atexit.register(self.close())
 
     def open(self):
         logging.debug("Motor.open() starting...")
@@ -32,7 +34,7 @@ class HWMotor(object):
             open_name = self.device_name
 
         device_id = lib.open_device(open_name)
-        if device_id == -1: # lib.device_undefined: #TODO: checkit
+        if device_id == -1:  # lib.device_undefined: #TODO: checkit
             logging.error("Motor.open(): open failed")
 
         edges_settings = edges_settings_t()
@@ -40,14 +42,17 @@ class HWMotor(object):
         if not result == Result.Ok:
             logging.error("Motor.get_edges_settings() error: {}".format(result))
             logging.debug("Motor.open() failed")
-            #TODO: exit from here
+            # TODO: exit from here
         edges_settings.BorderFlags = 0
         result = lib.set_edges_settings(device_id, byref(edges_settings))
         if not result == Result.Ok:
             logging.error("Motor.set_edges_settings() error: {}".format(result))
             logging.debug("Motor.open() failed")
-            #TODO: exit from here
+            # TODO: exit from here
         self.device_id = device_id
+
+        self.set_microstep_mode_256()
+
         logging.debug("Motor.open() finished")
 
     def close(self):
@@ -102,6 +107,12 @@ class HWMotor(object):
         logging.debug("Motor.get_position() finished.")
         return res
 
+    def get_position_deg(self):
+        logging.debug("Motor.get_position_deg() starting...")
+        res = self.get_position() / self.steps_on_deg
+        logging.debug("Motor.get_position_deg() finished.")
+        return res
+
     def move_to_position(self, position, uposition=0):
         logging.debug("Motor.move_to_position() starting...")
         result = lib.command_move(self.device_id, position, uposition)
@@ -115,8 +126,16 @@ class HWMotor(object):
         logging.debug("Motor.move_to_position() finished.")
         return res
 
+    def move_to_position_deg(self, position):
+        logging.debug("Motor.move_to_position_grad() starting...")
+        steps = int(position * self.steps_on_deg)
+        usteps = int((steps - position * self.steps_on_deg) * 256)
+        res = self.move_to_position(steps, usteps)
+        logging.debug("Motor.move_to_position_grad() finished...")
+        return res
+
     def move_by_delta(self, step, ustep=0):
-        logging.debug("Motormove_by_delta() starting...")
+        logging.debug("Motor.move_by_delta() starting...")
         result = lib.command_movr(self.device_id, step, ustep)
         res = {}
         if result == Result.Ok:
@@ -126,6 +145,14 @@ class HWMotor(object):
             logging.error("Motor.move_by_delta() error: {}".format(result))
         lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_by_delta() finished")
+        return res
+
+    def move_by_delta_deg(self, position):
+        logging.debug("Motor.move_by_delta_grad() starting...")
+        steps = int(position * self.steps_on_deg)
+        usteps = int((steps - position * self.steps_on_deg) * 256)
+        res = self.move_by_delta(steps, usteps)
+        logging.debug("Motor.move_by_delta_grad() finished...")
         return res
 
     def set_zero(self):
@@ -159,6 +186,28 @@ class HWMotor(object):
         # Print command return status. It will be 0 if all is OK
         if not result == Result.Ok:
             res['error'] = result
+        return res
+
+    def get_state(self, options=None):
+        if options is None:
+            options = ['device_name', 'steps_on_deg',
+                       'speed', 'acceleration', 'position']
+        res = {}
+        if not isinstance(options, (list, tuple)):
+            options = [options, ]
+
+        for option in options:
+            if option == 'device_name':
+                s = self.device_name
+            elif option == 'steps_on_deg':
+                s = self.steps_on_deg
+            elif option == 'speed':
+                s = self.speed
+            elif option == 'acceleration':
+                s = self.acceleration
+            else:
+                s = {'error': 'Unsupported option'}
+            res[option] = s
         return res
 
 

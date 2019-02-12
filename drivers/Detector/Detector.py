@@ -1,5 +1,5 @@
 import logging
-from .ximea import xiapi, xidefs
+from .ximea import xiapi
 import atexit
 
 
@@ -14,20 +14,14 @@ class HWDetector(object):
 
         atexit.register(self.close)
 
+        self.target_temperature = 5.0
         try:
             self.cam.disable_aeag()
             self.cam.disable_auto_wb()
             self.cam.set_gain(0.0)
-            # self.cam.enable_recent_frame()
             self.cam.set_cooling("XI_TEMP_CTRL_MODE_AUTO")
-            self.cam.set_target_temp(5.0)
+            self.cam.set_target_temp(self.target_temperature)
             self.cam.set_imgdataformat("XI_MONO16")
-            # logging.info(self.cam.get_cooling())
-            # # logging.info(self.cam.get_gain())
-            # # logging.info(self.cam.get_exposure_minimum())
-            # logging.info(self.cam.get_target_temp())
-            # logging.info(self.cam.get_temp_selector())
-            # logging.info(self.cam.get_acq_frame_burst_count())
             # TODO: add waiting for cooling
 
         except xiapi.Xi_error as err:
@@ -45,7 +39,7 @@ class HWDetector(object):
     def get_hous_temp(self):
         return self.cam.get_hous_temp()
 
-    def get_get_exposure(self):
+    def get_exposure(self):
         return self.cam.get_exposure() / 1e6
 
     def get_frames(self, exposure, number_frames=None):
@@ -61,8 +55,28 @@ class HWDetector(object):
                     data = img.get_image_data_numpy()
                 else:
                     data += img.get_image_data_numpy()  # TODO: check overflow
+            self.cam.stop_acquisition()
 
         except xiapi.Xi_error as err:
             logging.error("Detector.get_frame() failed " + str(err))
 
         return data
+
+    def get_state(self, options=None):
+        if options is None:
+            options = ['exposure', 'sensor_temp', 'hous_temp']
+        res = {}
+        if not isinstance(options, (list, tuple)):
+            options = [options, ]
+
+        for option in options:
+            if option == 'exposure':
+                s = self.get_exposure()
+            elif option == 'sensor_temp':
+                s = self.get_sensor_temp()
+            elif option == 'hous_temp':
+                s = self.get_hous_temp()
+            else:
+                s = {'error': 'Unsupported option'}
+            res[option] = s
+        return res
