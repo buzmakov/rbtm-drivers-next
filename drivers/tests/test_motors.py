@@ -14,6 +14,7 @@ def test_angle_motor():
     logging.info(motor.get_position_deg())
     pos_0 = motor.get_position_deg()
     motor.move_to_position_deg((pos_0 + 2) % 360)
+    logging.info(motor.get_position_deg())
     pos_1 = motor.get_position_deg()
     assert np.isclose(pos_1, (pos_0 + 2) % 360)
     motor.set_zero()

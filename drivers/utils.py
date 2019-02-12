@@ -27,7 +27,7 @@ def get_angle_motor_config():
     step_360 = get_info_from_config("angle motor", "step_in_360")
     speed = get_info_from_config("angle motor", "speed")
     acceleration = get_info_from_config("angle motor", "acceleration")
-    return {'port': port, "step_360":step_360, 
+    return {'port': port, "step_360":float(step_360)/360., 
         "speed": speed, "acceleration":acceleration}
 
 
