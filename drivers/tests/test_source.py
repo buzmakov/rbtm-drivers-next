@@ -38,6 +38,3 @@ def test_xraysource():
 #     s.on_high_voltage()
 #     pprint(s.get_state())
 #     assert s.get_state('is_on_high_voltage')['is_on_high_voltage']
-
-# print(s.get_error())
-#
