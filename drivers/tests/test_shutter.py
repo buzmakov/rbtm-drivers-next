@@ -16,12 +16,12 @@ def test_sutter():
     pprint('Shutter state')
     pprint(s.get_state(['is_open', 'is_closed']))
     s.open()
-    assert s.is_open()['value']
+    assert s.is_open()
     pprint('Shutter state')
     pprint(s.get_state())
     sleep(0.5)
     s.close()
-    assert not s.is_open()['value']
+    assert not s.is_open()
     pprint('Shutter state')
     pprint(s.get_state())
 

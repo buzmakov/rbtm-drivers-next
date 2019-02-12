@@ -11,6 +11,7 @@ class HWDetector(object):
             self.cam.open_device()
         except xiapi.Xi_error as err:
             logging.error("Detector.init() failed " + str(err))
+            raise RuntimeError("Detector.init() failed " + str(err))
 
         atexit.register(self.close)
 
@@ -26,12 +27,14 @@ class HWDetector(object):
 
         except xiapi.Xi_error as err:
             logging.error("Detector.init() failed " + str(err))
+            raise RuntimeError("Detector.init() failed " + str(err))
 
     def close(self):
         try:
             self.cam.close_device()
         except xiapi.Xi_error as err:
             logging.error("Detector.close() failed " + str(err))
+            raise RuntimeError("Detector.close() failed " + str(err))
 
     def get_sensor_temp(self):
         return self.cam.get_chip_temp()
@@ -59,6 +62,7 @@ class HWDetector(object):
 
         except xiapi.Xi_error as err:
             logging.error("Detector.get_frame() failed " + str(err))
+            raise RuntimeError("Detector.get_frame() failed " + str(err))
 
         return data
 

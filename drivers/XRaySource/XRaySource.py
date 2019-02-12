@@ -55,39 +55,40 @@ class HWSource(object):
         self.serial_port.write("HV:1\n".encode())
         error = self.get_error()
         if error is not None:
-            logging.error("Source.on_high_voltage() error: {}".format(error))
-
             if error['code'] == 106:
+                logging.info('Source.on_high_voltage warming needed')
                 self.warmup()
                 self.on_high_voltage()
+            else:
+                logging.error("Source.on_high_voltage() error: {}".format(error))
+                raise RuntimeError("Source.on_high_voltage() error: {}".format(error))
 
         self.wait_for_high_voltage()
         self.wait_for_current()
         self.wait_for_voltage()
 
         logging.debug('Source.on_high_voltage() finished.')
-        return {'error': error}
 
     def warmup(self):
         logging.debug('Source.warmup() starting...')
-        voltage = self.get_nominal_voltage()['value']
+        voltage = self.get_nominal_voltage()
         self.serial_port.write("WU:4,{}\n".format(
             str(int(round(voltage))).zfill(3)).encode())
         error = self.get_error()
-    
+
         self.serial_port.write("HV:1\n".encode())
         error = self.get_error()
         if error is not None:
             logging.error("Source.warmup() error: {}".format(error))
-    
+            raise RuntimeError("Source.warmup() error: {}".format(error))
+
         while self.get_status()['warming status']['in progress'] or \
-            self.get_status()['warming status']['warming from kb'] or \
-            self.get_status()['warming status']['warming from pc'] or \
-            self.get_status()['power status']['voltage kv norm']:
+                self.get_status()['warming status']['warming from kb'] or \
+                self.get_status()['warming status']['warming from pc'] or \
+                self.get_status()['power status']['voltage kv norm']:
             sleep(5)
-    
+
         logging.debug('Source.warmup() finished.')
-        return {'error': error}
 
     def off_high_voltage(self):
         logging.debug('Source.off_high_voltage() starting...')
@@ -95,11 +96,10 @@ class HWSource(object):
         error = self.get_error()
         if error is not None:
             logging.error("Source.off_high_voltage() error: {}".format(error))
+            raise RuntimeError("Source.off_high_voltage() error: {}".format(error))
 
         self.wait_for_high_voltage_down()
-
         logging.debug('Source.off_high_voltage() finished.')
-        return {'error': error}
 
     def is_on_high_volatge(self):
         logging.debug('Source.is_on_high_voltage() starting...')
@@ -152,9 +152,11 @@ class HWSource(object):
         error = self.get_error()
         if error is not None:
             logging.error("Source.get_nominal_voltage() error: {}".format(error))
+            raise RuntimeError("Source.get_nominal_voltage() error: {}".format(error))
+
         logging.debug('Source.get_nominal_voltage() finished.')
         res = self.get_number(answer) / 1000.
-        return {'value': res, 'error': error}
+        return res
 
     def get_actual_voltage(self):
         logging.debug('Source.get_actual_voltage() starting...')
@@ -162,12 +164,12 @@ class HWSource(object):
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.get_actual_voltage() error: {}".format(error)
-            )
+            logging.error("Source.get_actual_voltage() error: {}".format(error))
+            raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
+
         logging.debug('Source.get_actual_voltage() finished.')
         res = self.get_number(answer) / 1000.
-        return {'value': res, 'error': error}
+        return res
 
     def get_nominal_current(self):
         logging.debug('Source.get_nominal_current() starting...')
@@ -175,12 +177,12 @@ class HWSource(object):
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.get_nominal_current() error: {}".format(error)
-            )
+            logging.error("Source.get_nominal_current() error: {}".format(error))
+            raise RuntimeError("Source.get_nominal_current() error: {}".format(error))
+
         logging.debug('Source.get_nominal_current() finished.')
         res = self.get_number(answer) / 1000.
-        return {'value': res, 'error': error}
+        return res
 
     def get_actual_current(self):
         logging.debug('Source.get_actual_current) starting...')
@@ -188,12 +190,12 @@ class HWSource(object):
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.get_actual_current() error: {}".format(error)
-            )
+            logging.error("Source.get_actual_current() error: {}".format(error))
+            raise RuntimeError("Source.get_actual_current() error: {}".format(error))
+
         logging.debug('Source.get_actual_current() finished.')
         res = self.get_number(answer) / 1000.
-        return {'value': res, 'error': error}
+        return res
 
     def set_voltage(self, voltage):
         logging.debug('Source.set_voltage() starting...')
@@ -202,17 +204,16 @@ class HWSource(object):
 
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.set_voltage() error: {}".format(error)
-            )
-
             if error['code'] == 106:
+                logging.info('Source.on_high_voltage warming needed')
                 self.warmup()
-                self.set_voltage(voltage)
+                self.on_high_voltage()
+            else:
+                logging.error("Source.set_voltage() error: {}".format(error))
+                raise RuntimeError("Source.set_voltage() error: {}".format(error))
 
         self.wait_for_voltage()
         logging.debug('Source.set_voltage() finished.')
-        return {'error': error}
 
     def set_current(self, current):
         logging.debug('Source.set_current() starting...')
@@ -221,12 +222,11 @@ class HWSource(object):
 
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.set_current() error: {}".format(error)
-            )
+            logging.error("Source.set_current() error: {}".format(error))
+            raise RuntimeError("Source.set_current() error: {}".format(error))
+
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
-        return {'error': error}
 
     def get_id(self):
         logging.debug('Source.get_id() starting...')
@@ -234,12 +234,12 @@ class HWSource(object):
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.get_id() error: {}".format(error)
-            )
+            logging.error("Source.get_id() error: {}".format(error))
+            raise RuntimeError("Source.get_id() error: {}".format(error))
+
         logging.debug('Source.get_id() finished.')
         res = answer
-        return {'value': res, 'error': error}
+        return res
 
     def get_tube_name(self):
         logging.debug('Source.get_nominal_voltage() starting...')
@@ -247,12 +247,12 @@ class HWSource(object):
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error(
-                "Source.get_actual_voltage() error: {}".format(error)
-            )
+            logging.error("Source.get_actual_voltage() error: {}".format(error))
+            raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
+
         logging.debug('Source.get_actual_voltage() finished.')
         res = answer
-        return {'value': res, 'error': error}
+        return res
 
     def get_error(self):
         status_strings = {
@@ -376,7 +376,7 @@ class HWSource(object):
             res[option] = s
         return res
 
-    def set_state(self, options_dict, force=False):
+    def set_state(self, options_dict):
         res = {}
         for option in options_dict:
             if option == 'set_voltage':

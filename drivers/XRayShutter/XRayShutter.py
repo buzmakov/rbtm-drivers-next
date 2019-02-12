@@ -38,11 +38,9 @@ class HWShutter(object):
             if status != '#OK\r\n'.encode():
                 error = status.decode('utf-8')
                 logging.error("Shutter.check_module() error: {}".format(error))
-            else:
-                error = None
+                raise RuntimeError("Shutter.check_module() error: {}".format(error))
 
         logging.debug('Shutter.check_module() finished.')
-        return {'error': error}
 
     def open(self):
         """
@@ -56,11 +54,9 @@ class HWShutter(object):
             if serial_port.readline() != "#REL,OK\r\n".encode():
                 error = "Shutter.open(): Can't set value 1 to relay"
                 logging.error(error)
-            else:
-                error = None
+                raise RuntimeError(error)
 
         logging.debug('Shutter.open() finished.')
-        return {'error': error}
 
     def close(self):
         """
@@ -74,10 +70,9 @@ class HWShutter(object):
             if serial_port.readline() != "#REL,OK\r\n".encode():
                 error = "Shutter.close(): Can't set value 0 to relay"
                 logging.error(error)
-            else:
-                error = None
+                raise RuntimeError(error)
+
         logging.debug('Shutter.close() finished.')
-        return {'error': error}
 
     def is_open(self):
         logging.debug('Shutter.is_open() starting...')
@@ -86,18 +81,16 @@ class HWShutter(object):
                 self.relay_number).encode())
             relay_state = serial_port.readline().decode().strip()
 
-        pattern = re.compile("^#RDR,{},(0|1)$".format(self.relay_number))
+        pattern = re.compile("^#RDR,{},([01])$".format(self.relay_number))
         matched = pattern.match(relay_state)
         if matched:
             relay_state = bool(int(matched.group(1)))
-            error = None
         else:
-            error = relay_state
-            logging.error(
-                "Shutter.is_open(): Can't get relay state, got {}".format(relay_state))
+            logging.error("Shutter.is_open(): Can't get relay state, got {}".format(relay_state))
+            raise RuntimeError("Shutter.is_open(): Can't get relay state, got {}".format(relay_state))
         logging.debug('Shutter.is_open() finished.')
 
-        return {'value': relay_state, 'error': error}
+        return relay_state
 
     def get_state(self, options=None):
         if options is None:
@@ -115,7 +108,7 @@ class HWShutter(object):
 
         return res
 
-    def set_state(self, options_dict, force=False):
+    def set_state(self, options_dict):
         res = {}
         for option in options_dict:
             if option == 'is_open':

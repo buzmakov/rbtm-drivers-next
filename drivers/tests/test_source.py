@@ -17,11 +17,11 @@ def test_xraysource():
 
     print('Set voltage to:', 20)
     s.set_voltage(20)
-    assert s.get_actual_voltage()['value'] == 20
+    assert s.get_actual_voltage() == 20
 
     pprint(s.get_state())
     s.set_current(10)
-    assert s.get_actual_current()['value'] == 10
+    assert s.get_actual_current() == 10
     pprint(s.get_state())
 
     s.off_high_voltage()
