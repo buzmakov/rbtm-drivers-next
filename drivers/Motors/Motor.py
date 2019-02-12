@@ -19,11 +19,11 @@ except OSError as err:
 class HWMotor(object):
     def __init__(self, device_name, speed, acceleration, steps_on_deg=None):
         self.device_name = device_name
-        self.steps_on_deg = steps_on_deg
-        self.speed = speed
-        self.acceleration = acceleration
+        self.steps_on_deg = int(steps_on_deg)
+        self.speed = int(speed)
+        self.acceleration = int(acceleration)
         self.open()
-        atexit.register(self.close())
+        atexit.register(self.close)
 
     def open(self):
         logging.debug("Motor.open() starting...")
@@ -34,22 +34,27 @@ class HWMotor(object):
             open_name = self.device_name
 
         device_id = lib.open_device(open_name)
+        self.device_id = device_id
+        logging.info('Motor device_id: {}'.format(self.device_id))
         if device_id == -1:  # lib.device_undefined: #TODO: checkit
             logging.error("Motor.open(): open failed")
+            raise RuntimeError("Motor.open(): open failed")
 
         edges_settings = edges_settings_t()
         result = lib.get_edges_settings(device_id, byref(edges_settings))
         if not result == Result.Ok:
             logging.error("Motor.get_edges_settings() error: {}".format(result))
             logging.debug("Motor.open() failed")
-            # TODO: exit from here
+            raise RuntimeError("Motor.get_edges_settings() error: {}".format(result))
+
         edges_settings.BorderFlags = 0
         result = lib.set_edges_settings(device_id, byref(edges_settings))
         if not result == Result.Ok:
             logging.error("Motor.set_edges_settings() error: {}".format(result))
             logging.debug("Motor.open() failed")
-            # TODO: exit from here
-        self.device_id = device_id
+            raise RuntimeError("Motor.get_edges_settings() error: {}".format(result))
+
+        
 
         self.set_microstep_mode_256()
 
@@ -74,7 +79,8 @@ class HWMotor(object):
             res["Release"] = repr(x_device_information.Release)
             res["error"] = None
         else:
-            res['error'] = result
+            logging.error("Motor.get_info() error: {}".format(result))
+            raise RuntimeError("Motor.get_info() error: {}".format(result))
         return res
 
     def get_status(self):
@@ -87,23 +93,20 @@ class HWMotor(object):
             res["Status.Upwr"] = repr(x_status.Upwr)
             res["Status.Iusb"] = repr(x_status.Iusb)
             res["Status.Flags"] = repr(hex(x_status.Flags))
-            res['error'] = None
         else:
-            res['error'] = result
+            logging.error("Motor.get_status() error: {}".format(result))
+            raise RuntimeError("Motor.get_status() error: {}".format(result))
         return res
 
     def get_position(self):
         logging.debug("Motor.get_position() starting...")
         x_pos = get_position_t()
         result = lib.get_position(self.device_id, byref(x_pos))
-        res = {}
         if result == Result.Ok:
-            res['position'] = x_pos.Position
-            res['error'] = None
+            res = x_pos.Position
         else:
-            res['error'] = result
             logging.error("Motor.get_position() error: {}".format(result))
-
+            raise RuntimeError("Motor.get_position() error: {}".format(result))
         logging.debug("Motor.get_position() finished.")
         return res
 
@@ -116,15 +119,12 @@ class HWMotor(object):
     def move_to_position(self, position, uposition=0):
         logging.debug("Motor.move_to_position() starting...")
         result = lib.command_move(self.device_id, position, uposition)
-        res = {}
-        if result == Result.Ok:
-            res['error'] = None
-        else:
-            res['error'] = result
+        if not result == Result.Ok:
             logging.error("Motor.move_to_position() error: {}".format(result))
+            raise RuntimeError("Motor.move_to_position() error: {}".format(result))
+
         lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_to_position() finished.")
-        return res
 
     def move_to_position_deg(self, position):
         logging.debug("Motor.move_to_position_grad() starting...")
@@ -137,47 +137,38 @@ class HWMotor(object):
     def move_by_delta(self, step, ustep=0):
         logging.debug("Motor.move_by_delta() starting...")
         result = lib.command_movr(self.device_id, step, ustep)
-        res = {}
-        if result == Result.Ok:
-            res['error'] = None
-        else:
-            res['error'] = result
+        if not result == Result.Ok:
             logging.error("Motor.move_by_delta() error: {}".format(result))
+            raise RuntimeError("Motor.move_by_delta() error: {}".format(result))
+
         lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_by_delta() finished")
-        return res
 
     def move_by_delta_deg(self, position):
         logging.debug("Motor.move_by_delta_grad() starting...")
         steps = int(position * self.steps_on_deg)
         usteps = int((steps - position * self.steps_on_deg) * 256)
-        res = self.move_by_delta(steps, usteps)
+        self.move_by_delta(steps, usteps)
         logging.debug("Motor.move_by_delta_grad() finished...")
-        return res
 
     def set_zero(self):
         logging.debug("Motor.set_zero() starting...")
         result = lib.command_zero(self.device_id)
-        res = {}
-        if result == Result.Ok:
-            res['error'] = None
-        else:
-            res['error'] = result
+        if not result == Result.Ok:
             logging.error("Motor.set_zero() error: {}".format(result))
+            raise RuntimeError("Motor.set_zero() error: {}".format(result))
         lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.set_zero() finished")
-        return res
 
     def set_microstep_mode_256(self):
         logging.debug("\nSet microstep mode to 256")
         # Create engine settings structure
-        res = {'error': None}
         eng = engine_settings_t()
         # Get current engine settings from controller
         result = lib.get_engine_settings(self.device_id, byref(eng))
         if not result == Result.Ok:
-            result['error'] = result
-            return result
+            logging.error("Motor.set_microstep_mode_256() error: {}".format(result))
+            raise RuntimeError("Motor.set_microstep_mode_256() error: {}".format(result))
         # Change MicrostepMode parameter to MICROSTEP_MODE_FRAC_256
         # (use MICROSTEP_MODE_FRAC_128, MICROSTEP_MODE_FRAC_64 ... for other microstep modes)
         eng.MicrostepMode = MicrostepMode.MICROSTEP_MODE_FRAC_256
@@ -185,8 +176,8 @@ class HWMotor(object):
         result = lib.set_engine_settings(self.device_id, byref(eng))
         # Print command return status. It will be 0 if all is OK
         if not result == Result.Ok:
-            res['error'] = result
-        return res
+            logging.error("Motor.set_microstep_mode_256() error: {}".format(result))
+            raise RuntimeError("Motor.set_microstep_mode_256() error: {}".format(result))
 
     def get_state(self, options=None):
         if options is None:
