@@ -27,17 +27,17 @@ def get_angle_motor_config():
     step_360 = get_info_from_config("angle motor", "step_in_360")
     speed = get_info_from_config("angle motor", "speed")
     acceleration = get_info_from_config("angle motor", "acceleration")
-    return {'port': port, "step_360":float(step_360)/360., 
-        "speed": speed, "acceleration":acceleration}
+    return {'port': port, "step_360": float(step_360) / 360.,
+            "speed": speed, "acceleration": acceleration}
 
 
 def get_horizontal_motor_config():
     port = get_info_from_config("horizontal motor", "port")
     step_360 = get_info_from_config("horizontal motor", "step_in_360")
-    speed = get_info_from_config("angle motor", "speed")
-    acceleration = get_info_from_config("angle motor", "acceleration")
-    return {'port': port, "step_360":step_360,
-        "speed": speed, "acceleration":acceleration}
+    speed = get_info_from_config("horizontal motor", "speed")
+    acceleration = get_info_from_config("horizontal motor", "acceleration")
+    return {'port': port, "step_360": step_360,
+            "speed": speed, "acceleration": acceleration}
 
 
 if __name__ == '__main__':
