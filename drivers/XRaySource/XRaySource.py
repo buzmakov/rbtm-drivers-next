@@ -14,9 +14,9 @@ class HWSource(object):
         self.tty_name = tty_name
         self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
         logging.debug('Source.__init__ finished.')
-        atexit.register(self.cleanup)
+        atexit.register(self.close)
 
-    def cleanup(self):
+    def close(self):
         self.serial_port.close()
 
     def wait_for_high_voltage(self):

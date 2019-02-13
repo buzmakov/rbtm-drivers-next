@@ -1,6 +1,9 @@
 from ..XRayShutter import XRayShutter
 from ..XRaySource import XRaySource
-from ..utils import get_shutter_config, get_source_config
+from ..Motors import Motor
+from ..Detector import Detector
+from ..utils import get_shutter_config, get_source_config, \
+    get_horizontal_motor_config, get_angle_motor_config
 
 
 class Tomograph(object):
@@ -9,19 +12,36 @@ class Tomograph(object):
 
     def init_devices(self):
         shutter_config = get_shutter_config()
-        shutter = XRayShutter.HWShutter(
+        self.shutter = XRayShutter.HWShutter(
             shutter_config["port"],
             shutter_config["relay_number"]
         )
 
         source_config = get_source_config()
-        source = XRaySource.HWSource(
+        self.source = XRaySource.HWSource(
             source_config["port"]
         )
-        # TODO: add motors and detector
 
-        return {'shutter': shutter,
-                'source': source}
+        horizontal_motor_config = get_horizontal_motor_config()
+        self.horizontal_motor = Motor.HWMotor(horizontal_motor_config['port'],
+                                              horizontal_motor_config['speed'],
+                                              horizontal_motor_config['acceleration'],
+                                              horizontal_motor_config['step_360'])
+
+        angle_motor_config = get_angle_motor_config()
+        self.angle_motor = Motor.HWMotor(angle_motor_config['port'],
+                                         angle_motor_config['speed'],
+                                         angle_motor_config['acceleration'],
+                                         angle_motor_config['step_360'])
+
+        self.detector = Detector.HWDetector()
+
+        return {'shutter': self.shutter,
+                'source': self.source,
+                'horizontal_motor': self.horizontal_motor,
+                'angle_motor': self.angle_motor,
+                'detector': self.detector
+                }
 
     def get_state(self, devices=None):
         if devices is None:
