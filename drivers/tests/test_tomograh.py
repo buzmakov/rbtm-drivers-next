@@ -1,7 +1,9 @@
 from ..Tomograph.Tomograph import Tomograph
 import logging
-
+from pprint import pprint
 
 def test_tomograph():
     t = Tomograph()
-    logging.info(t.get_state())
+    state = t.get_state()
+    pprint(state)
+    logging.info(state)
