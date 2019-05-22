@@ -4,7 +4,7 @@ import json
 
 from .experiment import ModExpError, Experiment, create_event, send_message_to_storage_webpage
 from .constants import *
-
+from drivers.Tomograph.Tomograph import HWTomograph
 
 class Tomograph:
 

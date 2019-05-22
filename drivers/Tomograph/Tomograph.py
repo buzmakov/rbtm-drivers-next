@@ -6,11 +6,9 @@ from ..utils import get_shutter_config, get_source_config, \
     get_horizontal_motor_config, get_angle_motor_config
 
 
-class Tomograph(object):
+class HWTomograph(object):
     def __init__(self):
-        self.devices = self.init_devices()
 
-    def init_devices(self):
         shutter_config = get_shutter_config()
         self.shutter = XRayShutter.HWShutter(
             shutter_config["port"],
@@ -36,12 +34,12 @@ class Tomograph(object):
 
         self.detector = Detector.HWDetector()
 
-        return {'shutter': self.shutter,
-                'source': self.source,
-                'horizontal_motor': self.horizontal_motor,
-                'angle_motor': self.angle_motor,
-                'detector': self.detector
-                }
+        self.devices = {'shutter': self.shutter,
+                        'source': self.source,
+                        'horizontal_motor': self.horizontal_motor,
+                        'angle_motor': self.angle_motor,
+                        'detector': self.detector
+                        }
 
     def get_state(self, devices=None):
         if devices is None:
