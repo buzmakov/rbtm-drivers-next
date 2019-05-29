@@ -130,9 +130,8 @@ class HWMotor(object):
         logging.debug("Motor.move_to_position_grad() starting...")
         steps = int(position * self.steps_on_deg)
         usteps = int((steps - position * self.steps_on_deg) * 256)
-        res = self.move_to_position(steps, usteps)
+        self.move_to_position(steps, usteps)
         logging.debug("Motor.move_to_position_grad() finished...")
-        return res
 
     def move_by_delta(self, step, ustep=0):
         logging.debug("Motor.move_by_delta() starting...")
