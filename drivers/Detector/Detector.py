@@ -1,5 +1,14 @@
 import logging
-from .ximea import xiapi
+import sys
+import os
+
+#check os
+try: 
+    from .ximea import xiapi
+except ImportError:
+    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v2")
+    from ximea import xiapi
+
 import atexit
 
 
@@ -54,7 +63,7 @@ class HWDetector(object):
     def get_frames(self, exposure, number_frames=None):
         data = None
         try:
-            self.cam.set_exposure(round(exposure * 1e6))
+            self.cam.set_exposure(int(round(exposure * 1e6)))
             img = xiapi.Image()
             self.cam.start_acquisition()
 
