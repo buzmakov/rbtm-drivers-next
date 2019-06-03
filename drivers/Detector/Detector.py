@@ -15,7 +15,7 @@ class HWDetector(object):
 
         atexit.register(self.close)
 
-        self.target_temperature = 5.0
+        self.target_temperature = 15.0
         try:
             self.cam.disable_aeag()
             self.cam.disable_auto_wb()
@@ -36,6 +36,12 @@ class HWDetector(object):
             logging.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
 
+    def set_gain(self, gain):
+        self.cam.set_gain(gain)
+
+    def get_gain(self):
+        self.cam.get_gain()
+
     def get_sensor_temp(self):
         return self.cam.get_chip_temp()
 
@@ -48,7 +54,7 @@ class HWDetector(object):
     def get_frames(self, exposure, number_frames=None):
         data = None
         try:
-            self.cam.set_exposure(round(exposure * 1000000))
+            self.cam.set_exposure(round(exposure * 1e6))
             img = xiapi.Image()
             self.cam.start_acquisition()
 
