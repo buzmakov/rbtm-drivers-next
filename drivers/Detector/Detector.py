@@ -49,7 +49,7 @@ class HWDetector(object):
         self.cam.set_gain(gain)
 
     def get_gain(self):
-        self.cam.get_gain()
+        return self.cam.get_gain()
 
     def get_sensor_temp(self):
         return self.cam.get_chip_temp()
