@@ -6,7 +6,7 @@ import os
 try: 
     from .ximea import xiapi
 except ImportError:
-    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v2")
+    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3")
     from ximea import xiapi
 
 import atexit
@@ -68,7 +68,7 @@ class HWDetector(object):
             self.cam.start_acquisition()
 
             for frame_numb in range(number_frames):
-                self.cam.get_image(img)
+                self.cam.get_image(img, timeout=int(exposure*1.5*1e6))
                 if frame_numb == 0:
                     data = img.get_image_data_numpy()
                 else:
