@@ -17,6 +17,7 @@ class HWDetector(object):
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
+            self.cam.set_debug_level("XI_DL_DISABLED")
             self.cam.open_device()
         except xiapi.Xi_error as err:
             logging.error("Detector.init() failed " + str(err))
