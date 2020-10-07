@@ -11,7 +11,6 @@ class Tomograph:
     def __init__(self):
         self.hwtomo = HWTomograph()
         self.current_experiment = None
-        self.x_position = 0  # mock only property
         self.y_position = 0  # mock only property
         self.angle_position = 0  # mock only property
         self.prev_x_position = None  # mock only property
@@ -99,7 +98,7 @@ class Tomograph:
         if new_x < -5000 or 2000 < new_x:
             raise ModExpError(error='Position must have value from -5000 to 2000')
 
-        self.x_position = new_x
+        self.hwtomo.horizontal_motor.move_to_position(new_x)
 
     def set_y(self, new_y, from_experiment=False):
         self.basic_tomo_check(from_experiment)
@@ -125,7 +124,7 @@ class Tomograph:
 
     def get_x(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        return self.x_position
+        return self.hwtomo.horizontal_motor.get_position()
 
     def get_y(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
@@ -142,15 +141,15 @@ class Tomograph:
     def move_away(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
         if self.object_present:
-            self.prev_x_position = self.x_position
-            self.x_position = -4200
+            self.prev_x_position = self.hwtomo.horizontal_motor.get_position()
+            self.hwtomo.horizontal_motor.move_to_position(-4200)
             self.object_present = False
 
     def move_back(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
         if not self.object_present:
             if self.prev_x_position is not None:
-                self.x_position = self.prev_x_position
+                self.hwtomo.horizontal_motor.move_to_position(self.prev_x_position)
                 self.prev_x_position = None
                 self.object_present = True
 
@@ -221,7 +220,7 @@ class Tomograph:
                       'hous_temp': self.hous_temp}  # 'image': image,
         object_data = {'present': self.object_present,
                        'angle position': self.angle_position,
-                       'horizontal position': self.x_position,
+                       'horizontal position': self.hwtomo.horizontal_motor.get_position(),
                        # 'vertical position': self.y_position
                        }
         shutter_state = json.loads(self.shutter_state(from_experiment=from_experiment))
