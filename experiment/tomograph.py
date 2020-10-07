@@ -9,12 +9,8 @@ from drivers.Tomograph.Tomograph import HWTomograph
 class Tomograph:
 
     def __init__(self):
-
+        self.hwtomo = HWTomograph()
         self.current_experiment = None
-
-        self.source_current = 0  # mock only property
-        self.source_voltage = 0  # mock only property
-        self.shutter_status = None  # mock only property
         self.x_position = 0  # mock only property
         self.y_position = 0  # mock only property
         self.angle_position = 0  # mock only property
@@ -23,6 +19,12 @@ class Tomograph:
         self.chip_temp = 10  # mock only property
         self.hous_temp = 12  # mock only property
         self.object_present = True  # mock only property
+
+    def shutter_status(self):
+        if self.hwtomo.shutter.is_open():
+            return "OPEN"
+        else:
+            return "CLOSE"
 
     def basic_tomo_check(self, from_experiment):
         if not from_experiment:
@@ -53,7 +55,7 @@ class Tomograph:
         if new_voltage < 2 or 60 < new_voltage:
             raise ModExpError(error='Voltage must have value from 2 to 60!')
 
-        self.source_voltage = new_voltage
+        self.hwtomo.source.set_voltage(new_voltage)
 
     def source_set_current(self, new_current, from_experiment=False):
         self.basic_tomo_check(from_experiment=from_experiment)
@@ -64,29 +66,29 @@ class Tomograph:
         if new_current < 2 or 80 < new_current:
             raise ModExpError(error='Current must have value from 2 to 80!')
 
-        self.source_current = new_current
+        self.hwtomo.source.set_current(new_current)
 
     def source_get_voltage(self, from_experiment=False):
         self.basic_tomo_check(from_experiment=from_experiment)
-        return self.source_voltage
+        return self.hwtomo.source.get_actual_voltage()
 
     def source_get_current(self, from_experiment=False):
         self.basic_tomo_check(from_experiment=from_experiment)
-        return self.source_current
+        return self.hwtomo.source.get_actual_current()
 
     def open_shutter(self, time_=0, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        self.shutter_status = 'OPEN'  # TODO: ask for correct value
-        return self.shutter_status
+        self.hwtomo.shutter.open()
+        return self.shutter_status()
 
     def close_shutter(self, time_=0, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        self.shutter_status = 'CLOSE'  # TODO: ask for correct value
-        return self.shutter_status
+        self.hwtomo.shutter.close()
+        return self.shutter_status()
 
     def shutter_state(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        return json.dumps({'state': self.shutter_status})
+        return json.dumps({'state': self.shutter_status()})
 
     def set_x(self, new_x, from_experiment=False):
         self.basic_tomo_check(from_experiment)
@@ -224,8 +226,8 @@ class Tomograph:
                        }
         shutter_state = json.loads(self.shutter_state(from_experiment=from_experiment))
         shutter_data = {'open': shutter_state['state'] == 'OPEN'}
-        source_data = {'voltage': self.source_voltage,
-                       'current': self.source_current}
+        source_data = {'voltage': self.hwtomo.source.get_actual_voltage(),
+                       'current': self.hwtomo.source.get_actual_current()}
 
         return json.dumps({'image_data': image_data,
                            'object': object_data,

@@ -1,12 +1,11 @@
 import logging
 import sys
-import os
 
 #check os
 try: 
     from .ximea import xiapi
 except ImportError:
-    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3")
+    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3") #TODO: replace to ximea drivers path
     from ximea import xiapi
 
 import atexit
