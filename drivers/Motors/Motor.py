@@ -195,8 +195,10 @@ class HWMotor(object):
                 s = self.speed
             elif option == 'acceleration':
                 s = self.acceleration
+            elif option == 'position':
+                s = self.get_position_deg()
             else:
-                s = {'error': 'Unsupported option'}
+                s = {'error': 'Unsupported option {}'.format(s)}
             res[option] = s
         return res
 
