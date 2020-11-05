@@ -5,7 +5,13 @@ from ..Detector import Detector
 from ..utils import get_shutter_config, get_source_config, \
     get_horizontal_motor_config, get_angle_motor_config
 
-from autologging import traced
+import logging
+import sys
+from autologging import traced, TRACE
+
+logging.basicConfig(
+             level=TRACE, stream=sys.stderr,
+             format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
 @traced
 class HWTomograph(object):
