@@ -1,6 +1,5 @@
 import threading, time, json, requests
 from io import BytesIO
-from random import randint
 import numpy as np
 from scipy.ndimage import zoom
 import matplotlib.pyplot as plt
@@ -83,21 +82,21 @@ class Experiment:
     def get_and_send_frame(self, exposure, mode):
 
         if mode == 'dark':
-            raw_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False,
+            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False,
                                                                from_experiment=True)
         else:
-            raw_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True,
+            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True,
                                                                from_experiment=True)
         # frame_dict = {  u'image_data':  {   'image': np.empty((10, 10)),    },  }
 
-        raw_image_with_metadata['mode'] = mode
-        raw_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
+        numpy_image_with_metadata['mode'] = mode
+        numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
 
         send_to_webpage = (self.frame_num % self.FOSITW == 0)
         self.frame_num += 1
 
         # prepare_send_frame(raw_image_with_metadata,self,send_to_webpage)
-        thr = threading.Thread(target=prepare_send_frame, args=(raw_image_with_metadata, self, send_to_webpage))
+        thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self, send_to_webpage))
         thr.start()
 
     def run(self):
@@ -165,26 +164,17 @@ class Experiment:
 
 
 # Frame functions
-def prepare_send_frame(raw_image_with_metadata, experiment, send_to_webpage=False):
-    raw_image = raw_image_with_metadata['image_data']['raw_image']
-    del raw_image_with_metadata['image_data']['raw_image']
-    frame_metadata = raw_image_with_metadata
+def prepare_send_frame(numpy_image_with_metadata, experiment):
+    image_numpy = numpy_image_with_metadata['image_data']['raw_image']
+    del numpy_image_with_metadata['image_data']['raw_image']
+    frame_metadata = numpy_image_with_metadata
 
     try:
-        # experiment = 1
-        try:
-            # image_numpy = np.zeros((100, 100))
-            image_numpy = np.random.randint(0, randint(0, 65535), (2500, 2500))
-        except Exception as e:
-            raise ModExpError(error='Could not convert raw image to numpy.array', exception_message=e.message)
-
         if experiment:
-            pass
             frame_metadata_event = create_event(event_type='frame', exp_id=experiment.exp_id, MoF=frame_metadata)
             # frame_metadata_event = create_event(event_type='frame', exp_id=1, MoF=frame_metadata)
             send_frame_to_storage_webpage(frame_metadata_event=frame_metadata_event,
-                                          image_numpy=image_numpy,
-                                          send_to_webpage=send_to_webpage)
+                                          image_numpy=image_numpy)
         else:
             make_png(image_numpy)
 
@@ -197,7 +187,7 @@ def prepare_send_frame(raw_image_with_metadata, experiment, send_to_webpage=Fals
     return True, None
 
 
-def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, send_to_webpage):
+def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
     s = BytesIO()
     np.savez_compressed(s, frame_data=image_numpy)
     s.seek(0)
@@ -227,10 +217,8 @@ def send_to_storage(storage_uri, data, files=None):
 
 
 def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
-    res = image_numpy
     try:
-
-        small_res = zoom(np.rot90(res), zoom=0.25, order=0)
+        small_res = zoom(np.rot90(image_numpy), zoom=0.25, order=0)
         fig = plt.figure()
         img = plt.imshow(small_res)
         fig.colorbar(img)
