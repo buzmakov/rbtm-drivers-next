@@ -15,6 +15,9 @@ class Tomograph:
         self.prev_x_position = None  # mock only property
         self.object_present = True  # mock only property
 
+    def __del__(self):
+        del self.hwtomo
+
     def shutter_status(self):
         if self.hwtomo.shutter.is_open():
             return "OPEN" #TODO: replace with enum?

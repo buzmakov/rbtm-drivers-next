@@ -38,6 +38,9 @@ class HWDetector(object):
             logging.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
 
+    def __del__(self):
+        self.close()
+
     def close(self):
         try:
             self.cam.close_device()

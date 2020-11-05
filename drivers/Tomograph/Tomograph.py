@@ -10,8 +10,9 @@ import sys
 from autologging import traced, TRACE
 
 logging.basicConfig(
-             level=TRACE, stream=sys.stderr,
-             format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+    level=TRACE, stream=sys.stderr,
+    format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+
 
 @traced
 class HWTomograph(object):
@@ -48,6 +49,10 @@ class HWTomograph(object):
                         'angle_motor': self.angle_motor,
                         'detector': self.detector
                         }
+
+    def __del__(self):
+        for d in self.devices:
+            del d
 
     def get_state(self, devices=None):
         if devices is None:
