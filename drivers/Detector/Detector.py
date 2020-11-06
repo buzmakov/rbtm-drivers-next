@@ -38,9 +38,6 @@ class HWDetector(object):
             logging.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
 
-    def __del__(self):
-        self.close()
-
     def close(self):
         try:
             self.cam.close_device()
@@ -63,7 +60,10 @@ class HWDetector(object):
     def get_exposure(self):
         return self.cam.get_exposure() / 1e6
 
-    def get_frames(self, exposure, number_frames=None):
+    def get_frames(self, exposure, number_frames=1):
+        """
+        :param: exposure: exposition in seconds
+        """
         data = None
         try:
             self.cam.set_exposure(int(round(exposure * 1e6)))
@@ -71,7 +71,7 @@ class HWDetector(object):
             self.cam.start_acquisition()
 
             for frame_numb in range(number_frames):
-                self.cam.get_image(img, timeout=int(exposure*1.5*1e6))
+                self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6))
                 if frame_numb == 0:
                     data = img.get_image_data_numpy()
                 else:

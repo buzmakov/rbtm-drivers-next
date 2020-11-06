@@ -25,9 +25,6 @@ class HWMotor(object):
         self.open()
         atexit.register(self.close)
 
-    def __del__(self):
-        self.close()
-
     def open(self):
         logging.debug("Motor.open() starting...")
 

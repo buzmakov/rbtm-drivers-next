@@ -10,6 +10,4 @@ def test_detetector():
     res = d.get_frames(1, 1)
     print(f"\n time = {time.time()-t}")
     print(f"noise={res.mean()}")
-    np.save('det_test.npy', res)
-    
-
+    # np.save('det_test.npy', res)

@@ -3,24 +3,24 @@ import time
 import json
 
 from .experiment import ModExpError, Experiment, create_event, send_message_to_storage_webpage
-from .constants import *
+from .constants import SUCCESSFUL_STOP_MSG
 from drivers.Tomograph.Tomograph import HWTomograph
+
 
 class Tomograph:
 
     def __init__(self):
-        self.hwtomo = HWTomograph()
+        self.hwtomo = HWTomograph(mock=True)
         self.current_experiment = None
         self.y_position = 0  # mock only property
-        self.prev_x_position = None  # mock only property
-        self.object_present = True  # mock only property
+        self.object_present = None  # mock only property
 
     def __del__(self):
         del self.hwtomo
 
     def shutter_status(self):
         if self.hwtomo.shutter.is_open():
-            return "OPEN" #TODO: replace with enum?
+            return "OPEN"  # TODO: replace with enum?
         else:
             return "CLOSE"
 
@@ -34,7 +34,7 @@ class Tomograph:
 
     def tomo_state(self):
         if self.current_experiment is not None:
-            return 'experiment', ""  #TODO: replace with enum?
+            return 'experiment', ""  # TODO: replace with enum?
         else:
             return 'ready', ""
 
@@ -143,20 +143,24 @@ class Tomograph:
 
     def move_away(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        if self.object_present:
-            self.prev_x_position = self.hwtomo.horizontal_motor.get_position()
-            self.hwtomo.horizontal_motor.move_to_position(-4200)
-            self.object_present = False
+        self.hwtomo.horizontal_motor.move_to_position(-4200)
+        self.object_present = False
 
     def move_back(self, from_experiment=False):
         self.basic_tomo_check(from_experiment)
-        if not self.object_present:
-            if self.prev_x_position is not None:
-                self.hwtomo.horizontal_motor.move_to_position(self.prev_x_position)
-                self.prev_x_position = None
-                self.object_present = True
+        self.hwtomo.horizontal_motor.move_to_position(0)
+        self.object_present = True
+
+    def get_detector_chip_temperature(self):
+        return self.hwtomo.detector.get_sensor_temp()
+
+    def get_detector_hous_temperature(self):
+        return self.hwtomo.detector.get_hous_temp()
 
     def get_frame(self, exposure: float, with_open_shutter: bool, send_to_webpage=False, from_experiment: bool = False):
+        """
+        :param: exposue: exposition in millisecomds
+        """
         self.basic_tomo_check(from_experiment)
 
         if type(exposure) not in (int, float):
@@ -170,7 +174,7 @@ class Tomograph:
         else:
             self.close_shutter(from_experiment=from_experiment)
 
-        raw_image = self.hwtomo.detector.get_frames(exposure)
+        raw_image = self.hwtomo.detector.get_frames(exposure / 1.e6)
 
         try:
             frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
@@ -188,10 +192,7 @@ class Tomograph:
         raw_image_with_metadata = frame_metadata
         return raw_image_with_metadata
 
-
     def get_detector_frame_metadata(self, from_experiment=False):
-
-        image = None
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         timestamp = time.time()
         detector_data = {'model': 'Ximea xiRAY'}
@@ -200,7 +201,7 @@ class Tomograph:
                       'exposure': self.hwtomo.detector.get_exposure(),
                       'detector': detector_data,
                       'chip_temp': self.hwtomo.detector.get_sensor_temp(),
-                      'hous_temp': self.hwtomo.detector.get_hous_temp()}  # 'image': image,
+                      'hous_temp': self.hwtomo.detector.get_hous_temp()} 
         object_data = {'present': self.object_present,
                        'angle position': self.get_angle(),
                        'horizontal position': self.hwtomo.horizontal_motor.get_position(),
@@ -225,10 +226,10 @@ class Tomograph:
             self.current_experiment.run()
         except ModExpError as e:
             event_for_send = e.to_event_dict(exp_id)
-            stop_msg = e.stop_msg
+            # stop_msg = e.stop_msg
         else:
             event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
-            stop_msg = SUCCESSFUL_STOP_MSG
+            # stop_msg = SUCCESSFUL_STOP_MSG
 
         send_message_to_storage_webpage(event_for_send)
 

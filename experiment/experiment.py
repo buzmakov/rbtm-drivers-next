@@ -1,10 +1,13 @@
-import threading, time, json, requests
+import threading
+import time
+import json
+import requests
 from io import BytesIO
 import numpy as np
 from scipy.ndimage import zoom
 import matplotlib.pyplot as plt
 
-from .constants import *
+from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
 
 
 class ModExpError(Exception):
@@ -82,12 +85,10 @@ class Experiment:
     def get_and_send_frame(self, exposure, mode):
 
         if mode == 'dark':
-            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False,
-                                                               from_experiment=True)
+            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False, from_experiment=True)
         else:
             numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True,
-                                                               from_experiment=True)
-        # frame_dict = {  u'image_data':  {   'image': np.empty((10, 10)),    },  }
+                                                                 from_experiment=True)
 
         numpy_image_with_metadata['mode'] = mode
         numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
@@ -200,7 +201,7 @@ def send_to_storage(storage_uri, data, files=None):
     try:
         storage_resp = requests.post(storage_uri, files=files, data=data)
     except Exception as e:
-        raise ModExpError(error='Problems with storage', exception_message='Could not send to storage' """e.message""")
+        raise ModExpError(error='Problems with storage', exception_message='Could not send to storage {}'.format(e.message))
 
     try:
         storage_resp_dict = json.loads(storage_resp.content)

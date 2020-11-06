@@ -16,7 +16,7 @@ logging.basicConfig(
 
 @traced
 class HWTomograph(object):
-    def __init__(self):
+    def __init__(self, mock=False):
 
         shutter_config = get_shutter_config()
         self.shutter = XRayShutter.HWShutter(
@@ -26,7 +26,8 @@ class HWTomograph(object):
 
         source_config = get_source_config()
         self.source = XRaySource.HWSource(
-            source_config["port"]
+            source_config["port"],
+            mock=mock
         )
 
         horizontal_motor_config = get_horizontal_motor_config()
