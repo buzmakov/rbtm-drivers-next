@@ -6,7 +6,16 @@ from .experiment import ModExpError, Experiment, create_event, send_message_to_s
 from .constants import SUCCESSFUL_STOP_MSG
 from drivers.Tomograph.Tomograph import HWTomograph
 
+import logging
+import sys
+from autologging import traced, TRACE
 
+logging.basicConfig(
+    level=TRACE, stream=sys.stdout,
+    format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+
+
+@traced
 class Tomograph:
 
     def __init__(self):
@@ -162,6 +171,7 @@ class Tomograph:
         :param: exposue: exposition in millisecomds
         """
         self.basic_tomo_check(from_experiment)
+        logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
@@ -174,14 +184,13 @@ class Tomograph:
         else:
             self.close_shutter(from_experiment=from_experiment)
 
-        raw_image = self.hwtomo.detector.get_frames(exposure / 1.e6)
-
+        raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
+        
         try:
             frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
         except Exception as e:
             raise e
-        finally:
-            self.close_shutter(from_experiment=from_experiment)
+        logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         try:
             frame_metadata = json.loads(frame_metadata_json)
@@ -218,7 +227,7 @@ class Tomograph:
                            'X-ray source': source_data})
 
     def carry_out_simple_experiment(self, exp_param):
-        self.current_experiment = Experiment(tomograph=self, exp_param=exp_param)
+        self.current_experiment = Experiment(_tomograph=self, exp_param=exp_param)
 
         exp_id = self.current_experiment.exp_id
 

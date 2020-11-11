@@ -10,7 +10,14 @@ except ImportError:
 
 import atexit
 
+# from autologging import traced, TRACE
 
+# logging.basicConfig(
+#     level=TRACE, stream=sys.stdout,
+#     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+
+
+# @traced
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
