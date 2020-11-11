@@ -8,7 +8,7 @@ from scipy.ndimage import zoom
 import matplotlib.pyplot as plt
 
 from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
-
+from . import tomograph
 
 class ModExpError(Exception):
     def __init__(self, error, exception_message='', stop_msg=EMERGENCY_STOP_MSG):
@@ -58,8 +58,8 @@ def create_event(event_type, exp_id, MoF, exception_message='', error=''):
 
 
 class Experiment:
-    def __init__(self, tomograph, exp_param, FOSITW=5):
-        self.tomograph = tomograph
+    def __init__(self, _tomograph: tomograph.Tomograph, exp_param):
+        self.tomograph: tomograph.Tomograph = _tomograph
         self.exp_id = exp_param['exp_id']
 
         self.DARK_count = exp_param['DARK']['count']
@@ -76,8 +76,6 @@ class Experiment:
         frames_total_count = self.DARK_count + self.EMPTY_count + self.DATA_step_count * self.DATA_count_per_step
         self.total_digits_count = len(str(abs(frames_total_count - 1)))
 
-        self.FOSITW = FOSITW
-
         self.frame_num = 0
         self.to_be_stopped = False
         self.stop_exception = None
@@ -93,11 +91,10 @@ class Experiment:
         numpy_image_with_metadata['mode'] = mode
         numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
 
-        send_to_webpage = (self.frame_num % self.FOSITW == 0)
         self.frame_num += 1
 
         # prepare_send_frame(raw_image_with_metadata,self,send_to_webpage)
-        thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self, send_to_webpage))
+        thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
         thr.start()
 
     def run(self):
@@ -107,13 +104,13 @@ class Experiment:
         self.collect_dark_frames()
         self.collect_empty_frames()
         self.collect_data_frames()
+        self.tomograph.close_shutter(from_experiment=True)
         self.tomograph.source_power_off(from_experiment=True)
         return
 
     def collect_data_frames(self):
         initial_angle = self.tomograph.get_angle(from_experiment=True)
         initial_angle = initial_angle if initial_angle is not None else 0
-        self.tomograph.set_exposure(self.DATA_exposure, from_experiment=True)
         data_angles = np.round((np.arange(0, self.DATA_step_count)) * self.DATA_angle_step + initial_angle, 2) % 360
 
         exp_angles = data_angles
@@ -125,26 +122,24 @@ class Experiment:
             self.tomograph.set_angle(float(current_angle), from_experiment=True)
 
             for j in range(0, self.DATA_count_per_step):
-                self.get_and_send_frame(exposure=None, mode='data')
+                self.get_and_send_frame(exposure=self.DATA_exposure, mode='data')
 
         self.tomograph.close_shutter(0, from_experiment=True)
 
     def collect_empty_frames(self):
         self.tomograph.move_away(from_experiment=True)
-        self.tomograph.set_exposure(self.EMPTY_exposure, from_experiment=True)
         self.tomograph.open_shutter(0, from_experiment=True)
         for i in range(0, self.EMPTY_count):
             self.check_source()
-            self.get_and_send_frame(exposure=None, mode='empty')
+            self.get_and_send_frame(self.EMPTY_exposure, mode='empty')
         self.tomograph.close_shutter(0, from_experiment=True)
         self.tomograph.move_back(from_experiment=True)
 
     def collect_dark_frames(self):
         self.tomograph.close_shutter(0, from_experiment=True)
-        time.sleep(1.0)
-        self.tomograph.set_exposure(self.DARK_exposure, from_experiment=True)
+        time.sleep(0.5)
         for i in range(0, self.DARK_count):
-            self.get_and_send_frame(exposure=None, mode='dark')
+            self.get_and_send_frame(exposure=self.DARK_exposure, mode='dark')
 
     def check_source(self):
 
