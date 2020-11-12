@@ -15,7 +15,7 @@ logging.basicConfig(
     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
 
-@traced
+# @traced
 class Tomograph:
 
     def __init__(self):
@@ -171,7 +171,6 @@ class Tomograph:
         :param: exposue: exposition in millisecomds
         """
         self.basic_tomo_check(from_experiment)
-        logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
@@ -186,10 +185,7 @@ class Tomograph:
 
         raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
         
-
         frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
-
-        logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         try:
             frame_metadata = json.loads(frame_metadata_json)
@@ -202,24 +198,30 @@ class Tomograph:
 
     def get_detector_frame_metadata(self, from_experiment=False):
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        print("1")
         timestamp = time.time()
         detector_data = {'model': 'Ximea xiRAY'}
         image_data = {'timestamp': timestamp,
                       'datetime': current_datetime,
-                      'exposure': self.hwtomo.detector.get_exposure(),
+                      'exposure': self.hwtomo.detector.get_exposure()*1e3,
                       'detector': detector_data,
                       'chip_temp': self.hwtomo.detector.get_sensor_temp(),
-                      'hous_temp': self.hwtomo.detector.get_hous_temp()} 
+                      'hous_temp': self.hwtomo.detector.get_hous_temp()
+                      } 
+        print("2")              
         object_data = {'present': self.object_present,
-                       'angle position': self.get_angle(),
+                       'angle position': self.get_angle(from_experiment=from_experiment),
                        'horizontal position': self.hwtomo.horizontal_motor.get_position(),
-                       # 'vertical position': self.y_position
+                       'vertical position': self.y_position
                        }
+        print("3")
         shutter_state = json.loads(self.shutter_state(from_experiment=from_experiment))
+        print("4")
         shutter_data = {'open': shutter_state['state'] == 'OPEN'}
+        print("5")
         source_data = {'voltage': self.hwtomo.source.get_actual_voltage(),
                        'current': self.hwtomo.source.get_actual_current()}
-
+        print("6")
         return json.dumps({'image_data': image_data,
                            'object': object_data,
                            'shutter': shutter_data,

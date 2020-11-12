@@ -1,3 +1,4 @@
 .idea/
 *.pyc
 image.png
+.vscode/settings.json

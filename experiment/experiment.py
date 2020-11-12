@@ -2,7 +2,6 @@ import logging
 import threading
 import time
 import json
-from numpy.core.fromnumeric import trace
 import requests
 from io import BytesIO
 import numpy as np
@@ -67,7 +66,7 @@ def create_event(event_type, exp_id, MoF, exception_message='', error=''):
     return None
 
 
-@traced
+# @traced
 class Experiment:
     def __init__(self, _tomograph, exp_param):
         self.tomograph: tomograph.Tomograph = _tomograph
@@ -92,10 +91,9 @@ class Experiment:
         self.stop_exception = None
 
     def get_and_send_frame(self, exposure, mode):
-        
         if mode == 'dark':
             numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False, 
-                                                                from_experiment=True)
+                                                                 from_experiment=True)
         else:
             numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True,
                                                                  from_experiment=True)
@@ -104,9 +102,9 @@ class Experiment:
 
         self.frame_num += 1
         
-        prepare_send_frame(numpy_image_with_metadata, self)
-        # thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
-        # thr.start()
+        # prepare_send_frame(numpy_image_with_metadata, self)
+        thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
+        thr.start()
 
     def run(self):
         self.to_be_stopped = False
@@ -129,7 +127,7 @@ class Experiment:
         self.tomograph.move_back(from_experiment=True)
         self.tomograph.open_shutter(0, from_experiment=True)
         for current_angle in exp_angles:
-            self.check_source()
+            # self.check_source()
             self.tomograph.set_angle(float(current_angle), from_experiment=True)
 
             for j in range(0, self.DATA_count_per_step):
@@ -141,7 +139,7 @@ class Experiment:
         self.tomograph.move_away(from_experiment=True)
         self.tomograph.open_shutter(0, from_experiment=True)
         for i in range(0, self.EMPTY_count):
-            self.check_source()
+            # self.check_source()
             self.get_and_send_frame(self.EMPTY_exposure, mode='empty')
         self.tomograph.close_shutter(0, from_experiment=True)
         self.tomograph.move_back(from_experiment=True)
