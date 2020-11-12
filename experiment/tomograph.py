@@ -186,15 +186,14 @@ class Tomograph:
 
         raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
         
-        try:
-            frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
-        except Exception as e:
-            raise e
+
+        frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
+
         logging.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         try:
             frame_metadata = json.loads(frame_metadata_json)
-        except TypeError:
+        except TypeError as e:
             raise ModExpError(error='Could not convert frame\'s JSON into dict')
 
         frame_metadata['image_data']['raw_image'] = raw_image

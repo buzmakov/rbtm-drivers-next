@@ -199,7 +199,7 @@ def prepare_send_frame(numpy_image_with_metadata, experiment):
 def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
     s = BytesIO()
     np.savez_compressed(s, frame_data=image_numpy)
-    logging.trace(image_numpy.shape)
+    logging.debug(image_numpy.shape)
     # s.seek(0)
     data = {'data': json.dumps(frame_metadata_event)}
     files = {'file': s.getvalue()}
