@@ -1,9 +1,11 @@
 version: '3.7'
 services:
-  drivers:
+  drivers_new:
     build: .
     container_name: rbtm-drivers-new
     restart: unless-stopped
+    ports:
+     - "5001:5001"
     volumes:
       - "/dev/ximc/0000037A:/dev/ximc/0000037A"
       - "/dev/ximc/00000271:/dev/ximc/00000271"
@@ -16,5 +18,4 @@ services:
       - "/dev/fw0:/dev/fw0"
       - "/dev/fw1:/dev/fw1"
     environment:
-      - LD_LIBRARY_PATH=/var/www/drivers/package/libs/libusb/X64:/var/www/drivers/package/libs/libraw1394/X64:/var/www/drivers/package/api/X64
-      - TANGO_HOST=tango-cs:10000
+      - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64

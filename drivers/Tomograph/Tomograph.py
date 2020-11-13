@@ -51,10 +51,6 @@ class HWTomograph(object):
                         'detector': self.detector
                         }
 
-    def __del__(self):
-        for d in self.devices:
-            del d
-
     def get_state(self, devices=None):
         if devices is None:
             devices = {k: None for k in self.devices}
