@@ -5,7 +5,7 @@ import json
 import requests
 from io import BytesIO
 import numpy as np
-from scipy.ndimage import zoom
+from scipy.ndimage import zoom, median_filter
 import matplotlib.pyplot as plt
 
 from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
@@ -226,8 +226,10 @@ def send_to_storage(storage_uri, data, files=None):
 
 def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
     try:
-        small_res = zoom(np.rot90(image_numpy), zoom=0.25, order=0)
-        fig = plt.figure()
+        
+        small_res = zoom(np.fliplr(image_numpy), zoom=0.25, order=0)
+        small_res = median_filter(small_res, 3)
+        fig = plt.figure(figsize=(8, 4))
         img = plt.imshow(small_res)
         fig.colorbar(img)
         fig.tight_layout()
