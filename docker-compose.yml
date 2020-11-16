@@ -14,7 +14,7 @@ services:
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM1:/dev/ttyACM1"
       - "/dev/ttyACM0:/dev/ttyACM0"
-      - "/dev/ttyUSB0:/dev/ttyUSB0"
+      - "/dev/ttyUSB1:/dev/ttyUSB1"
       - "/dev/fw0:/dev/fw0"
       - "/dev/fw1:/dev/fw1"
     environment:
