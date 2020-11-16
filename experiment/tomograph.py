@@ -19,7 +19,7 @@ logging.basicConfig(
 class Tomograph:
 
     def __init__(self):
-        self.hwtomo = HWTomograph(mock=True)
+        self.hwtomo = HWTomograph(mock=False)
         self.current_experiment = None
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property

@@ -197,7 +197,7 @@ def experiment_start(tomo_num):
 
     try:
         send_to_storage(STORAGE_EXP_START_URI, data=request.data)
-    except ModExpError as e:
+    except ModExpError as e:  #TODO: should we crashed here?
         return e.create_response()
 
     if exp_param['advanced']:
@@ -238,7 +238,7 @@ def call_method_create_response(tomo_num, method_name, args=(), GET_FRAME_method
 
     try:
         result = getattr(tomograph, method_name)(*args)
-    except ModExpError as e:
+    except ModExpError as e:   #TODO: should we crashed here?
         return e.create_response()
 
     if not GET_FRAME_method:
