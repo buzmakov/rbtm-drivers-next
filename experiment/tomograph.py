@@ -33,29 +33,19 @@ class Tomograph:
         else:
             return "CLOSE"
 
-    def basic_tomo_check(self, from_experiment):
-        if not from_experiment:
-            if self.current_experiment is not None:
-                raise ModExpError(error='On this tomograph experiment is running')
-        else:
-            if self.current_experiment.to_be_stopped:
-                raise self.current_experiment.stop_exception
-
     def tomo_state(self):
         if self.current_experiment is not None:
             return 'experiment', ""  # TODO: replace with enum?
         else:
             return 'ready', ""
 
-    def source_power_on(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def source_power_on(self):
+        pass
 
-    def source_power_off(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def source_power_off(self):
+        pass
 
-    def source_set_voltage(self, new_voltage, from_experiment=False):
-        self.basic_tomo_check(from_experiment=from_experiment)
-
+    def source_set_voltage(self, new_voltage):
         if type(new_voltage) is not float:
             raise ModExpError(error='Incorrect format: type must be float')
 
@@ -64,9 +54,7 @@ class Tomograph:
 
         self.hwtomo.source.set_voltage(new_voltage)
 
-    def source_set_current(self, new_current, from_experiment=False):
-        self.basic_tomo_check(from_experiment=from_experiment)
-
+    def source_set_current(self, new_current):
         if type(new_current) is not float:
             raise ModExpError(error='Incorrect format: type must be float')
 
@@ -75,31 +63,24 @@ class Tomograph:
 
         self.hwtomo.source.set_current(new_current)
 
-    def source_get_voltage(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment=from_experiment)
+    def source_get_voltage(self):
         return self.hwtomo.source.get_actual_voltage()
 
-    def source_get_current(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment=from_experiment)
+    def source_get_current(self):
         return self.hwtomo.source.get_actual_current()
 
-    def open_shutter(self, time_=0, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def open_shutter(self, time_=0):
         self.hwtomo.shutter.open()
         return self.shutter_status()
 
-    def close_shutter(self, time_=0, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def close_shutter(self, time_=0):
         self.hwtomo.shutter.close()
         return self.shutter_status()
 
-    def shutter_state(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def shutter_state(self):
         return json.dumps({'state': self.shutter_status()})
 
-    def set_x(self, new_x, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
-
+    def set_x(self, new_x):
         if type(new_x) not in (int, float):
             raise ModExpError(error='Incorrect type! Position type must be int, but it is ' + str(type(new_x)))
 
@@ -108,9 +89,7 @@ class Tomograph:
 
         self.hwtomo.horizontal_motor.move_to_position(new_x)
 
-    def set_y(self, new_y, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
-
+    def set_y(self, new_y):
         if type(new_y) not in (int, float):
             raise ModExpError(error='Incorrect type! Position type must be int, but it is ' + str(type(new_y)))
 
@@ -119,14 +98,11 @@ class Tomograph:
 
         self.y_position = new_y
 
-    def set_angle(self, new_angle, from_experiment=False):
+    def set_angle(self, new_angle):
         """
 
         :param new_angle: angle in degrees
-        :param from_experiment:
         """
-        self.basic_tomo_check(from_experiment)
-
         if type(new_angle) not in (int, float):
             raise ModExpError(
                 error='Incorrect type! Position type must be int or float, but it is ' + str(type(new_angle)))
@@ -134,29 +110,23 @@ class Tomograph:
         new_angle %= 360
         self.hwtomo.angle_motor.move_to_position_deg(new_angle)
 
-    def get_x(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def get_x(self):
         return self.hwtomo.horizontal_motor.get_position()
 
-    def get_y(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def get_y(self):
         return self.y_position
 
-    def get_angle(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def get_angle(self):
         return self.hwtomo.angle_motor.get_position_deg()
 
-    def reset_to_zero_angle(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def reset_to_zero_angle(self):
         self.hwtomo.angle_motor.set_zero()
 
-    def move_away(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
-        self.hwtomo.horizontal_motor.move_to_position(-4200)
+    def move_away(self):
+        self.hwtomo.horizontal_motor.move_to_position(-4200) #TODO: take value from config
         self.object_present = False
 
-    def move_back(self, from_experiment=False):
-        self.basic_tomo_check(from_experiment)
+    def move_back(self):
         self.hwtomo.horizontal_motor.move_to_position(0)
         self.object_present = True
 
@@ -166,12 +136,10 @@ class Tomograph:
     def get_detector_hous_temperature(self):
         return self.hwtomo.detector.get_hous_temp()
 
-    def get_frame(self, exposure: float, with_open_shutter: bool, send_to_webpage=False, from_experiment: bool = False):
+    def get_frame(self, exposure: float, with_open_shutter: bool, send_to_webpage=False):
         """
         :param: exposue: exposition in millisecomds
         """
-        self.basic_tomo_check(from_experiment)
-
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
 
@@ -179,13 +147,13 @@ class Tomograph:
             raise ModExpError(error=('Exposure must have value from 0.1 to 16000 (given is %.1f )' % exposure))
 
         if with_open_shutter:
-            self.open_shutter(from_experiment=from_experiment)
+            self.open_shutter()
         else:
-            self.close_shutter(from_experiment=from_experiment)
+            self.close_shutter()
 
         raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
         
-        frame_metadata_json = self.get_detector_frame_metadata(from_experiment=from_experiment)
+        frame_metadata_json = self.get_detector_frame_metadata()
 
         try:
             frame_metadata = json.loads(frame_metadata_json)
@@ -196,32 +164,26 @@ class Tomograph:
         raw_image_with_metadata = frame_metadata
         return raw_image_with_metadata
 
-    def get_detector_frame_metadata(self, from_experiment=False):
+    def get_detector_frame_metadata(self):
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        print("1")
         timestamp = time.time()
         detector_data = {'model': 'Ximea xiRAY'}
         image_data = {'timestamp': timestamp,
                       'datetime': current_datetime,
-                      'exposure': self.hwtomo.detector.get_exposure()*1e3,
+                      'exposure': self.hwtomo.detector.get_exposure() * 1e3,
                       'detector': detector_data,
                       'chip_temp': self.hwtomo.detector.get_sensor_temp(),
                       'hous_temp': self.hwtomo.detector.get_hous_temp()
-                      } 
-        print("2")              
+                      }         
         object_data = {'present': self.object_present,
-                       'angle position': self.get_angle(from_experiment=from_experiment),
+                       'angle position': self.get_angle(),
                        'horizontal position': self.hwtomo.horizontal_motor.get_position(),
                        'vertical position': self.y_position
                        }
-        print("3")
-        shutter_state = json.loads(self.shutter_state(from_experiment=from_experiment))
-        print("4")
+        shutter_state = json.loads(self.shutter_state())
         shutter_data = {'open': shutter_state['state'] == 'OPEN'}
-        print("5")
         source_data = {'voltage': self.hwtomo.source.get_actual_voltage(),
                        'current': self.hwtomo.source.get_actual_current()}
-        print("6")
         return json.dumps({'image_data': image_data,
                            'object': object_data,
                            'shutter': shutter_data,
@@ -234,7 +196,7 @@ class Tomograph:
 
         try:
             self.current_experiment.run()
-        except ModExpError as e:
+        except ModExpError as e:   # TODO: should we crashed here?
             event_for_send = e.to_event_dict(exp_id)
             # stop_msg = e.stop_msg
         else:

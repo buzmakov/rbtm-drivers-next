@@ -92,11 +92,9 @@ class Experiment:
 
     def get_and_send_frame(self, exposure, mode):
         if mode == 'dark':
-            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False, 
-                                                                 from_experiment=True)
+            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False)
         else:
-            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True,
-                                                                 from_experiment=True)
+            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True)
         numpy_image_with_metadata['mode'] = mode
         numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
 
@@ -109,51 +107,51 @@ class Experiment:
     def run(self):
         self.to_be_stopped = False
         self.stop_exception = None
-        self.tomograph.source_power_on(from_experiment=True)
+        self.tomograph.source_power_on()
         self.collect_dark_frames()
         self.collect_empty_frames()
         self.collect_data_frames()
-        self.tomograph.close_shutter(from_experiment=True)
-        self.tomograph.source_power_off(from_experiment=True)
+        self.tomograph.close_shutter()
+        self.tomograph.source_power_off()
         return
 
     def collect_data_frames(self):
-        initial_angle = self.tomograph.get_angle(from_experiment=True)
+        initial_angle = self.tomograph.get_angle()
         initial_angle = initial_angle if initial_angle is not None else 0
         data_angles = np.round((np.arange(0, self.DATA_step_count)) * self.DATA_angle_step + initial_angle, 2) % 360
 
         exp_angles = data_angles
 
-        self.tomograph.move_back(from_experiment=True)
-        self.tomograph.open_shutter(0, from_experiment=True)
+        self.tomograph.move_back()
+        self.tomograph.open_shutter(0)
         for current_angle in exp_angles:
             # self.check_source()
-            self.tomograph.set_angle(float(current_angle), from_experiment=True)
+            self.tomograph.set_angle(float(current_angle))
 
             for j in range(0, self.DATA_count_per_step):
                 self.get_and_send_frame(exposure=self.DATA_exposure, mode='data')
 
-        self.tomograph.close_shutter(0, from_experiment=True)
+        self.tomograph.close_shutter(0)
 
     def collect_empty_frames(self):
-        self.tomograph.move_away(from_experiment=True)
-        self.tomograph.open_shutter(0, from_experiment=True)
+        self.tomograph.move_away()
+        self.tomograph.open_shutter(0)
         for i in range(0, self.EMPTY_count):
             # self.check_source()
             self.get_and_send_frame(self.EMPTY_exposure, mode='empty')
-        self.tomograph.close_shutter(0, from_experiment=True)
-        self.tomograph.move_back(from_experiment=True)
+        self.tomograph.close_shutter(0)
+        self.tomograph.move_back()
 
     def collect_dark_frames(self):
-        self.tomograph.close_shutter(0, from_experiment=True)
+        self.tomograph.close_shutter(0)
         time.sleep(0.5)
         for _ in range(0, self.DARK_count):
             self.get_and_send_frame(exposure=self.DARK_exposure, mode='dark')
 
     def check_source(self):
 
-        current = self.tomograph.source_get_current(from_experiment=True)
-        voltage = self.tomograph.source_get_voltage(from_experiment=True)
+        current = self.tomograph.source_get_current()
+        voltage = self.tomograph.source_get_voltage()
 
         if (current is not None) and (voltage is not None):
             if current > 2 and voltage > 2:
@@ -162,14 +160,14 @@ class Experiment:
         print('X-ray source in wrong mode, try restart (off/on)')
         print('current = {0}, voltage = {1}'.format(current, voltage))
 
-        self.tomograph.source_power_off(from_experiment=True)
+        self.tomograph.source_power_off()
         time.sleep(5)
-        self.tomograph.source_power_on(from_experiment=True)
+        self.tomograph.source_power_on()
         time.sleep(5)
 
 
 # Frame functions
-@traced
+# @traced
 def prepare_send_frame(numpy_image_with_metadata, experiment):
     image_numpy = numpy_image_with_metadata['image_data']['raw_image']
     
