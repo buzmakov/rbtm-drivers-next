@@ -232,6 +232,7 @@ class HWSource(object):
         res = self.get_number(answer) / 1000.
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def set_voltage(self, voltage):
         if self.mock:
             return
@@ -252,6 +253,7 @@ class HWSource(object):
         self.wait_for_voltage()
         logging.debug('Source.set_voltage() finished.')
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def set_current(self, current):
         if self.mock:
             return 40
@@ -267,6 +269,7 @@ class HWSource(object):
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_id(self):
         if self.mock:
             return "Mock 40 20"
@@ -282,6 +285,7 @@ class HWSource(object):
         res = answer
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_tube_name(self):
         if self.mock:
             return "Mock 40 20"
