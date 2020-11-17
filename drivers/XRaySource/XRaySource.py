@@ -1,23 +1,19 @@
 import serial
 import logging
+from cachetools.func import ttl_cache
 from time import sleep, time
 import atexit
 
-command_timeout = 5  # wait 5 seconds for setting voltage
 
 TIMEOUT = 10
 
 READ_TIMEOUT = 5
 
+
 class HWSource(object):
     def __init__(self, tty_name, mock: bool = False):
         logging.debug('Source.__init__ starting...')
         self.mock = mock
-        self.voltage_a = 0
-        self.current_a = 0
-        self.voltage_n = 0
-        self.current_n = 0
-        self.last_update = time() - READ_TIMEOUT
         self.tty_name = tty_name
         self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
         logging.debug('Source.__init__ finished.')
@@ -168,19 +164,10 @@ class HWSource(object):
 
         return res
 
-    def ready_to_ask_source(self):  # TODO: ADD separate delays for voltage and current
-        t = time()
-        if t - self.last_update < READ_TIMEOUT:
-            return False
-        else:
-            self.last_update = t
-            return True
-
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_nominal_voltage(self):
         if self.mock:
             return 40
-        if not self.ready_to_ask_source():
-            return self.voltage_n
 
         logging.debug('Source.get_nominal_voltage() starting...')
         self.serial_port.write("VN\n".encode())
@@ -192,14 +179,13 @@ class HWSource(object):
 
         logging.debug('Source.get_nominal_voltage() finished.')
         res = self.get_number(answer) / 1000.
-        self.voltage_n = res
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_voltage(self):
         if self.mock:
             return 40
-        if not self.ready_to_ask_source():
-            return self.voltage_a
+
         logging.debug('Source.get_actual_voltage() starting...')
         self.serial_port.write("VA\n".encode())
         answer = self.get_data_string()
@@ -210,15 +196,12 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_voltage() finished.')
         res = self.get_number(answer) / 1000.
-        self.voltage_a = res
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_nominal_current(self):
         if self.mock:
             return 20
-        
-        if not self.ready_to_ask_source():
-            return self.current_n
 
         logging.debug('Source.get_nominal_current() starting...')
         self.serial_port.write("CN\n".encode())
@@ -230,15 +213,12 @@ class HWSource(object):
 
         logging.debug('Source.get_nominal_current() finished.')
         res = self.get_number(answer) / 1000.
-        self.current_n = res
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_current(self):
         if self.mock:
             return 20
-
-        if not self.ready_to_ask_source():
-            return self.current_a
 
         logging.debug('Source.get_actual_current) starting...')
         self.serial_port.write("CA\n".encode())
@@ -250,7 +230,6 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_current() finished.')
         res = self.get_number(answer) / 1000.
-        self.current_a = res
         return res
 
     def set_voltage(self, voltage):
