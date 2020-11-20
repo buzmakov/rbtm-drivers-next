@@ -1,7 +1,7 @@
 import serial
 import logging
 from cachetools.func import ttl_cache
-from time import sleep, time
+from time import sleep
 import atexit
 
 

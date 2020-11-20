@@ -123,7 +123,7 @@ class Tomograph:
         self.hwtomo.angle_motor.set_zero()
 
     def move_away(self):
-        self.hwtomo.horizontal_motor.move_to_position(-4200) #TODO: take value from config
+        self.hwtomo.horizontal_motor.move_to_position(-6000) #TODO: take value from config
         self.object_present = False
 
     def move_back(self):
