@@ -1,7 +1,7 @@
 import serial
 import logging
 from cachetools.func import ttl_cache
-from time import sleep, time
+from time import sleep
 import atexit
 
 
@@ -367,7 +367,10 @@ class HWSource(object):
 
         self.serial_port.write("SR:12\n".encode())
         answer = self.get_data_string()
-        error_code = int(answer[1:-1])
+        try:
+            error_code = int(answer[1:-1])
+        except ValueError:  # TODO: Fix this
+            error_code = 0
 
         if error_code != 0:
             res = {'code': error_code, 'message': status_strings[int(error_code)]}
@@ -379,11 +382,13 @@ class HWSource(object):
     # auxiliary functions
 
     def get_data_string(self):
-        cur_byte = self.serial_port.read()
-        line = cur_byte
-        while cur_byte != '\r'.encode():
-            cur_byte = self.serial_port.read()
-            line = line + cur_byte
+        sleep(0.2)
+        line = self.serial_port.read_until('\r'.encode())
+        # cur_byte = self.serial_port.read()
+        # line = cur_byte
+        # while cur_byte != '\r'.encode():
+        #     cur_byte = self.serial_port.read()
+        #     line = line + cur_byte
         return line.decode()
 
     @staticmethod
