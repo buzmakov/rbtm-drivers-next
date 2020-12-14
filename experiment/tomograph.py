@@ -143,8 +143,8 @@ class Tomograph:
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
 
-        if exposure < 0.1 or 16000 < exposure:
-            raise ModExpError(error=('Exposure must have value from 0.1 to 16000 (given is %.1f )' % exposure))
+        # if exposure < 0.1 or 16000 < exposure:
+        #     raise ModExpError(error=('Exposure must have value from 0.1 to 16000 (given is %.1f )' % exposure))
 
         if with_open_shutter:
             self.open_shutter()
