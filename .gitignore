@@ -1,2 +1,5 @@
 *.pyc
 det_test.npy
+.idea/
+image.png
+.vscode/settings.json

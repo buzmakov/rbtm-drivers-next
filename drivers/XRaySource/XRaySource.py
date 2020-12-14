@@ -1,37 +1,48 @@
 import serial
 import logging
+from cachetools.func import ttl_cache
 from time import sleep
 import atexit
 
-command_timeout = 5  # wait 2 seconds for setting voltage
 
 TIMEOUT = 10
 
+READ_TIMEOUT = 5
+
 
 class HWSource(object):
-    def __init__(self, tty_name):
+    def __init__(self, tty_name, mock: bool = False):
         logging.debug('Source.__init__ starting...')
+        self.mock = mock
         self.tty_name = tty_name
         self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
         logging.debug('Source.__init__ finished.')
         atexit.register(self.close)
 
     def close(self):
+        if self.mock:
+            return
         self.serial_port.close()
 
     def wait_for_high_voltage(self):
+        if self.mock:
+            return
         n = 0
         while n < 10 and not self.is_on_high_volatge():
             sleep(1)
             n = n + 1
 
     def wait_for_high_voltage_down(self):
+        if self.mock:
+            return
         n = 0
         while n < 10 and self.is_on_high_volatge():
             sleep(1)
             n = n + 1
 
     def wait_for_voltage(self):
+        if self.mock:
+            return
         if not self.is_on_high_volatge():
             return
 
@@ -41,6 +52,8 @@ class HWSource(object):
             n = n + 1
 
     def wait_for_current(self):
+        if self.mock:
+            return
         if not self.is_on_high_volatge():
             return
 
@@ -51,6 +64,8 @@ class HWSource(object):
         return
 
     def on_high_voltage(self):
+        if self.mock:
+            return
         logging.debug('Source.on_high_voltage() starting...')
         self.serial_port.write("HV:1\n".encode())
         error = self.get_error()
@@ -70,6 +85,8 @@ class HWSource(object):
         logging.debug('Source.on_high_voltage() finished.')
 
     def warmup(self):
+        if self.mock:
+            return
         logging.debug('Source.warmup() starting...')
         voltage = self.get_nominal_voltage()
         self.serial_port.write("WU:4,{}\n".format(
@@ -91,6 +108,8 @@ class HWSource(object):
         logging.debug('Source.warmup() finished.')
 
     def off_high_voltage(self):
+        if self.mock:
+            return
         logging.debug('Source.off_high_voltage() starting...')
         self.serial_port.write("HV:0\n".encode())
         error = self.get_error()
@@ -145,7 +164,11 @@ class HWSource(object):
 
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_nominal_voltage(self):
+        if self.mock:
+            return 40
+
         logging.debug('Source.get_nominal_voltage() starting...')
         self.serial_port.write("VN\n".encode())
         answer = self.get_data_string()
@@ -158,7 +181,11 @@ class HWSource(object):
         res = self.get_number(answer) / 1000.
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_voltage(self):
+        if self.mock:
+            return 40
+
         logging.debug('Source.get_actual_voltage() starting...')
         self.serial_port.write("VA\n".encode())
         answer = self.get_data_string()
@@ -171,7 +198,11 @@ class HWSource(object):
         res = self.get_number(answer) / 1000.
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_nominal_current(self):
+        if self.mock:
+            return 20
+
         logging.debug('Source.get_nominal_current() starting...')
         self.serial_port.write("CN\n".encode())
         answer = self.get_data_string()
@@ -184,7 +215,11 @@ class HWSource(object):
         res = self.get_number(answer) / 1000.
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_current(self):
+        if self.mock:
+            return 20
+
         logging.debug('Source.get_actual_current) starting...')
         self.serial_port.write("CA\n".encode())
         answer = self.get_data_string()
@@ -197,7 +232,10 @@ class HWSource(object):
         res = self.get_number(answer) / 1000.
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def set_voltage(self, voltage):
+        if self.mock:
+            return
         logging.debug('Source.set_voltage() starting...')
         command = "SV:{}\n".format(str(voltage * 1000).zfill(6)).encode()
         self.serial_port.write(command)
@@ -215,7 +253,10 @@ class HWSource(object):
         self.wait_for_voltage()
         logging.debug('Source.set_voltage() finished.')
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def set_current(self, current):
+        if self.mock:
+            return 40
         logging.debug('Source.set_current() starting...')
         command = "SC:{}\n".format(str(current * 1000).zfill(6)).encode()
         self.serial_port.write(command)
@@ -228,7 +269,10 @@ class HWSource(object):
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_id(self):
+        if self.mock:
+            return "Mock 40 20"
         logging.debug('Source.get_id() starting...')
         self.serial_port.write("ID\n".encode())
         answer = self.get_data_string()
@@ -241,7 +285,10 @@ class HWSource(object):
         res = answer
         return res
 
+    @ttl_cache(ttl=READ_TIMEOUT)
     def get_tube_name(self):
+        if self.mock:
+            return "Mock 40 20"
         logging.debug('Source.get_nominal_voltage() starting...')
         self.serial_port.write("XT\n".encode())
         answer = self.get_data_string()
@@ -320,7 +367,10 @@ class HWSource(object):
 
         self.serial_port.write("SR:12\n".encode())
         answer = self.get_data_string()
-        error_code = int(answer[1:-1])
+        try:
+            error_code = int(answer[1:-1])
+        except ValueError:  # TODO: Fix this
+            error_code = 0
 
         if error_code != 0:
             res = {'code': error_code, 'message': status_strings[int(error_code)]}
@@ -332,11 +382,13 @@ class HWSource(object):
     # auxiliary functions
 
     def get_data_string(self):
-        cur_byte = self.serial_port.read()
-        line = cur_byte
-        while cur_byte != '\r'.encode():
-            cur_byte = self.serial_port.read()
-            line = line + cur_byte
+        sleep(0.2)
+        line = self.serial_port.read_until('\r'.encode())
+        # cur_byte = self.serial_port.read()
+        # line = cur_byte
+        # while cur_byte != '\r'.encode():
+        #     cur_byte = self.serial_port.read()
+        #     line = line + cur_byte
         return line.decode()
 
     @staticmethod

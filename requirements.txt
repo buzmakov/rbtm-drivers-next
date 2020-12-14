@@ -1,0 +1,9 @@
+flask
+requests
+pyserial
+pytest
+numpy
+scipy
+matplotlib
+autologging
+cachetools

@@ -5,12 +5,19 @@ from ..Detector import Detector
 from ..utils import get_shutter_config, get_source_config, \
     get_horizontal_motor_config, get_angle_motor_config
 
+# import logging
+# import sys
+# from autologging import traced, TRACE
 
-class Tomograph(object):
-    def __init__(self):
-        self.devices = self.init_devices()
+# logging.basicConfig(
+#     level=TRACE, stream=sys.stdout,
+#     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
-    def init_devices(self):
+
+# @traced
+class HWTomograph(object):
+    def __init__(self, mock=False):
+
         shutter_config = get_shutter_config()
         self.shutter = XRayShutter.HWShutter(
             shutter_config["port"],
@@ -19,7 +26,8 @@ class Tomograph(object):
 
         source_config = get_source_config()
         self.source = XRaySource.HWSource(
-            source_config["port"]
+            source_config["port"],
+            mock=mock
         )
 
         horizontal_motor_config = get_horizontal_motor_config()
@@ -36,12 +44,12 @@ class Tomograph(object):
 
         self.detector = Detector.HWDetector()
 
-        return {'shutter': self.shutter,
-                'source': self.source,
-                'horizontal_motor': self.horizontal_motor,
-                'angle_motor': self.angle_motor,
-                'detector': self.detector
-                }
+        self.devices = {'shutter': self.shutter,
+                        'source': self.source,
+                        'horizontal_motor': self.horizontal_motor,
+                        'angle_motor': self.angle_motor,
+                        'detector': self.detector
+                        }
 
     def get_state(self, devices=None):
         if devices is None:

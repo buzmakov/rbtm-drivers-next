@@ -1,6 +1,6 @@
 import logging
 import atexit
-
+import numpy as np
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, \
         EnumerateFlags, controller_name_t, device_information_t, string_at, edges_settings_t, engine_settings_t, \
@@ -103,7 +103,7 @@ class HWMotor(object):
         x_pos = get_position_t()
         result = lib.get_position(self.device_id, byref(x_pos))
         if result == Result.Ok:
-            res = x_pos.Position
+            res = x_pos.Position + x_pos.uPosition / 256.
         else:
             logging.error("Motor.get_position() error: {}".format(result))
             raise RuntimeError("Motor.get_position() error: {}".format(result))
@@ -130,9 +130,8 @@ class HWMotor(object):
         logging.debug("Motor.move_to_position_grad() starting...")
         steps = int(position * self.steps_on_deg)
         usteps = int((steps - position * self.steps_on_deg) * 256)
-        res = self.move_to_position(steps, usteps)
+        self.move_to_position(steps, usteps)
         logging.debug("Motor.move_to_position_grad() finished...")
-        return res
 
     def move_by_delta(self, step, ustep=0):
         logging.debug("Motor.move_by_delta() starting...")
@@ -146,8 +145,8 @@ class HWMotor(object):
 
     def move_by_delta_deg(self, position):
         logging.debug("Motor.move_by_delta_grad() starting...")
-        steps = int(position * self.steps_on_deg)
-        usteps = int((steps - position * self.steps_on_deg) * 256)
+        steps = int(np.floor(position * self.steps_on_deg))
+        usteps = int(np.floor((steps - position * self.steps_on_deg) * 256))
         self.move_by_delta(steps, usteps)
         logging.debug("Motor.move_by_delta_grad() finished...")
 
@@ -196,8 +195,10 @@ class HWMotor(object):
                 s = self.speed
             elif option == 'acceleration':
                 s = self.acceleration
+            elif option == 'position':
+                s = self.get_position_deg()
             else:
-                s = {'error': 'Unsupported option'}
+                s = {'error': 'Unsupported option {}'.format(s)}
             res[option] = s
         return res
 

@@ -1,13 +1,29 @@
 import logging
-from .ximea import xiapi
+import sys
+
+#check os
+try: 
+    from .ximea import xiapi
+except ImportError:
+    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3") #TODO: replace to ximea drivers path
+    from ximea import xiapi
+
 import atexit
 
+# from autologging import traced, TRACE
 
+# logging.basicConfig(
+#     level=TRACE, stream=sys.stdout,
+#     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+
+
+# @traced
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
+            self.cam.set_debug_level("XI_DL_DISABLED")
             self.cam.open_device()
         except xiapi.Xi_error as err:
             logging.error("Detector.init() failed " + str(err))
@@ -15,7 +31,7 @@ class HWDetector(object):
 
         atexit.register(self.close)
 
-        self.target_temperature = 5.0
+        self.target_temperature = 15.0
         try:
             self.cam.disable_aeag()
             self.cam.disable_auto_wb()
@@ -36,6 +52,12 @@ class HWDetector(object):
             logging.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
 
+    def set_gain(self, gain):
+        self.cam.set_gain(gain)
+
+    def get_gain(self):
+        return self.cam.get_gain()
+
     def get_sensor_temp(self):
         return self.cam.get_chip_temp()
 
@@ -45,15 +67,18 @@ class HWDetector(object):
     def get_exposure(self):
         return self.cam.get_exposure() / 1e6
 
-    def get_frames(self, exposure, number_frames=None):
+    def get_frames(self, exposure, number_frames=1):
+        """
+        :param: exposure: exposition in seconds
+        """
         data = None
         try:
-            self.cam.set_exposure(round(exposure * 1000000))
+            self.cam.set_exposure(int(round(exposure * 1e6)))
             img = xiapi.Image()
             self.cam.start_acquisition()
 
             for frame_numb in range(number_frames):
-                self.cam.get_image(img)
+                self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6))
                 if frame_numb == 0:
                     data = img.get_image_data_numpy()
                 else:
