@@ -1,13 +1,13 @@
 import serial
 import logging
-from cachetools.func import ttl_cache
-from time import sleep
+# from cachetools.func import ttl_cache
+from time import sleep, time
 import atexit
-
 
 TIMEOUT = 10
 
-READ_TIMEOUT = 5
+GLOBAL_READ_TIMEOUT = 5
+LOCAL_READ_TIMEOUT = 10
 
 
 class HWSource(object):
@@ -15,6 +15,19 @@ class HWSource(object):
         logging.debug('Source.__init__ starting...')
         self.mock = mock
         self.tty_name = tty_name
+        self.timers_global = None
+        self.timer_voltage_nominal = None
+        self.timer_voltage_actual = None
+        self.timer_current_nominal = None
+        self.timer_current_actual = None
+        self.last_voltage_nominal = None
+        self.last_voltage_actual = None
+        self.last_current_nominal = None
+        self.last_current_actual = None
+
+        self.device_id = None
+        self.tube_name = None
+
         self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
         logging.debug('Source.__init__ finished.')
         atexit.register(self.close)
@@ -164,10 +177,23 @@ class HWSource(object):
 
         return res
 
-    @ttl_cache(ttl=READ_TIMEOUT)
+    def check_timers(self, timer, value):
+        t = time()
+        if timer is None:
+            timer = time()
+        if t - timer < LOCAL_READ_TIMEOUT:
+            if value is not None:
+                return value
+        elif t - timer < GLOBAL_READ_TIMEOUT:
+            sleep(GLOBAL_READ_TIMEOUT - (t - timer))
+        return None
+
     def get_nominal_voltage(self):
         if self.mock:
             return 40
+        t = self.check_timers(self.timer_voltage_nominal, self.last_voltage_nominal)
+        if t is not None:
+            return t
 
         logging.debug('Source.get_nominal_voltage() starting...')
         self.serial_port.write("VN\n".encode())
@@ -178,13 +204,17 @@ class HWSource(object):
             raise RuntimeError("Source.get_nominal_voltage() error: {}".format(error))
 
         logging.debug('Source.get_nominal_voltage() finished.')
-        res = self.get_number(answer) / 1000.
-        return res
+        self.last_voltage_nominal = self.get_number(answer) / 1000.
+        self.timer_voltage_nominal = time()
+        return self.last_voltage_nominal
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_voltage(self):
         if self.mock:
             return 40
+
+        t = self.check_timers(self.timer_voltage_actual, self.last_voltage_actual)
+        if t is not None:
+            return t
 
         logging.debug('Source.get_actual_voltage() starting...')
         self.serial_port.write("VA\n".encode())
@@ -195,13 +225,17 @@ class HWSource(object):
             raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
 
         logging.debug('Source.get_actual_voltage() finished.')
-        res = self.get_number(answer) / 1000.
-        return res
+        self.last_voltage_actual = self.get_number(answer) / 1000.
+        self.timer_voltage_actual = time()
+        return self.last_voltage_actual
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def get_nominal_current(self):
         if self.mock:
             return 20
+
+        t = self.check_timers(self.timer_current_nominal, self.last_current_nominal)
+        if t is not None:
+            return t
 
         logging.debug('Source.get_nominal_current() starting...')
         self.serial_port.write("CN\n".encode())
@@ -212,14 +246,16 @@ class HWSource(object):
             raise RuntimeError("Source.get_nominal_current() error: {}".format(error))
 
         logging.debug('Source.get_nominal_current() finished.')
-        res = self.get_number(answer) / 1000.
-        return res
+        self.last_current_nominal = self.get_number(answer) / 1000.
+        self.timer_current_nominal = time()
+        return self.last_current_nominal
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def get_actual_current(self):
         if self.mock:
             return 20
-
+        t = self.check_timers(self.timer_current_actual, self.last_current_actual)
+        if t is not None:
+            return t
         logging.debug('Source.get_actual_current) starting...')
         self.serial_port.write("CA\n".encode())
         answer = self.get_data_string()
@@ -229,10 +265,10 @@ class HWSource(object):
             raise RuntimeError("Source.get_actual_current() error: {}".format(error))
 
         logging.debug('Source.get_actual_current() finished.')
-        res = self.get_number(answer) / 1000.
-        return res
+        self.last_current_actual = self.get_number(answer) / 1000.
+        self.timer_current_actual = time()
+        return self.last_current_actual
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def set_voltage(self, voltage):
         if self.mock:
             return
@@ -253,7 +289,6 @@ class HWSource(object):
         self.wait_for_voltage()
         logging.debug('Source.set_voltage() finished.')
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def set_current(self, current):
         if self.mock:
             return 40
@@ -269,11 +304,12 @@ class HWSource(object):
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def get_id(self):
         if self.mock:
             return "Mock 40 20"
         logging.debug('Source.get_id() starting...')
+        if self.device_id is not None:
+            return self.device_id
         self.serial_port.write("ID\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
@@ -282,14 +318,16 @@ class HWSource(object):
             raise RuntimeError("Source.get_id() error: {}".format(error))
 
         logging.debug('Source.get_id() finished.')
-        res = answer
-        return res
+        self.device_id = answer
+        return self.device_id
 
-    @ttl_cache(ttl=READ_TIMEOUT)
     def get_tube_name(self):
         if self.mock:
             return "Mock 40 20"
         logging.debug('Source.get_nominal_voltage() starting...')
+        if self.tube_name is not None:
+            return self.tube_name
+
         self.serial_port.write("XT\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
@@ -298,8 +336,8 @@ class HWSource(object):
             raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
 
         logging.debug('Source.get_actual_voltage() finished.')
-        res = answer
-        return res
+        self.device_id = answer
+        return self.tube_name
 
     def get_error(self):
         status_strings = {
@@ -382,7 +420,7 @@ class HWSource(object):
     # auxiliary functions
 
     def get_data_string(self):
-        sleep(0.2)
+        sleep(0.2)  # TODO: remove it?
         line = self.serial_port.read_until('\r'.encode())
         # cur_byte = self.serial_port.read()
         # line = cur_byte
