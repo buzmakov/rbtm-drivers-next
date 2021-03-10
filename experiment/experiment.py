@@ -5,17 +5,17 @@ import json
 import requests
 from io import BytesIO
 import numpy as np
-from scipy.ndimage import zoom, median_filter
+from scipy.ndimage import median_filter
 import matplotlib.pyplot as plt
 
 from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
 from . import tomograph
 
 import sys
-from autologging import traced, TRACE
+# from autologging import traced, TRACE
 
 logging.basicConfig(
-    level=TRACE, stream=sys.stdout,
+    level=logging.DEBUG, stream=sys.stdout,
     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
 
@@ -99,8 +99,8 @@ class Experiment:
         numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
 
         self.frame_num += 1
-        
         # prepare_send_frame(numpy_image_with_metadata, self)
+        logging.debug('Send frame number {} to server.'.format(numpy_image_with_metadata['number']))
         thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
         thr.start()
 
@@ -170,7 +170,6 @@ class Experiment:
 # @traced
 def prepare_send_frame(numpy_image_with_metadata, experiment):
     image_numpy = numpy_image_with_metadata['image_data']['raw_image']
-    
     del numpy_image_with_metadata['image_data']['raw_image']
     frame_metadata = numpy_image_with_metadata
 
@@ -184,11 +183,13 @@ def prepare_send_frame(numpy_image_with_metadata, experiment):
             make_png(image_numpy)
 
     except ModExpError as e:
+        logging.error('Can\'t send frame number {} to server. {}'.format(numpy_image_with_metadata['number'], e.message))
         if experiment is not None:
             experiment.stop_exception = e
             experiment.to_be_stopped = True
         return False, e
 
+    logging.debug('Sended frame number {} to server.'.format(numpy_image_with_metadata['number']))
     return True, None
 
 
@@ -197,6 +198,7 @@ def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
     np.savez_compressed(s, frame_data=image_numpy)
     logging.debug(image_numpy.shape)
     # s.seek(0)
+    del image_numpy
     data = {'data': json.dumps(frame_metadata_event)}
     files = {'file': s.getvalue()}
     send_to_storage(storage_uri=STORAGE_FRAMES_URI, data=data, files=files)
@@ -224,8 +226,7 @@ def send_to_storage(storage_uri, data, files=None):
 
 def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
     try:
-        
-        small_res = zoom(np.fliplr(image_numpy), zoom=0.25, order=0)
+        small_res = np.fliplr(image_numpy)[::4, ::4]
         small_res = median_filter(small_res, 3)
         fig = plt.figure(figsize=(8, 4))
         img = plt.imshow(small_res)
@@ -236,6 +237,7 @@ def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
         plt.savefig(png_filename)
 
     except Exception as e:
+        logging.error("Could not make png-file from image")
         raise ModExpError(error="Could not make png-file from image", exception_message=e.message)
 
 
@@ -244,6 +246,7 @@ def send_message_to_storage_webpage(event_dict):
     try:
         send_to_storage(STORAGE_EXP_FINISH_URI, data=event_json_for_storage)
     except ModExpError as e:
+        logging.error("Could not message to storage")
         raise ModExpError(error="Could not message to storage", exception_message=e.message)
 
 
