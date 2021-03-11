@@ -1,5 +1,6 @@
 import logging
-import threading
+# import threading
+import multiprocessing as mp
 import time
 import json
 import requests
@@ -89,7 +90,8 @@ class Experiment:
         self.frame_num = 0
         self.to_be_stopped = False
         self.stop_exception = None
-
+        self.worker_process = None
+        
     def get_and_send_frame(self, exposure, mode):
         if mode == 'dark':
             numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False)
@@ -100,9 +102,12 @@ class Experiment:
 
         self.frame_num += 1
         # prepare_send_frame(numpy_image_with_metadata, self)
-        logging.debug('Send frame number {} to server.'.format(numpy_image_with_metadata['number']))
-        thr = threading.Thread(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
-        thr.start()
+
+        if self.worker_process is not None:
+            self.worker_process.join()
+        
+        self.worker_process = mp.Process(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
+        self.worker_process.start()
 
     def run(self):
         self.to_be_stopped = False
@@ -177,19 +182,21 @@ def prepare_send_frame(numpy_image_with_metadata, experiment):
         if experiment:
             frame_metadata_event = create_event(event_type='frame', exp_id=experiment.exp_id, MoF=frame_metadata)
             # frame_metadata_event = create_event(event_type='frame', exp_id=1, MoF=frame_metadata)
+            # worker_process = mp.Process(target=send_frame_to_storage_webpage, args=(frame_metadata_event, image_numpy))
+            # worker_process.start()
             send_frame_to_storage_webpage(frame_metadata_event=frame_metadata_event,
                                           image_numpy=image_numpy)
         else:
             make_png(image_numpy)
 
     except ModExpError as e:
-        logging.error('Can\'t send frame number {} to server. {}'.format(numpy_image_with_metadata['number'], e.message))
+        # logging.error('Can\'t send frame number {} to server. {}'.format(numpy_image_with_metadata['number'], e.message))
         if experiment is not None:
             experiment.stop_exception = e
             experiment.to_be_stopped = True
         return False, e
 
-    logging.debug('Sended frame number {} to server.'.format(numpy_image_with_metadata['number']))
+    # logging.debug('Sended frame number {} to server.'.format(numpy_image_with_metadata['number']))
     return True, None
 
 

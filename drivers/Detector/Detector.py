@@ -78,7 +78,7 @@ class HWDetector(object):
             self.cam.start_acquisition()
 
             for frame_numb in range(number_frames):
-                self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6))
+                self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6 + 5e5))
                 if frame_numb == 0:
                     data = img.get_image_data_numpy()
                 else:
