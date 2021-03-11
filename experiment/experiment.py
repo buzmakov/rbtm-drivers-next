@@ -1,5 +1,4 @@
 import logging
-# import threading
 import multiprocessing as mp
 import time
 import json
@@ -91,6 +90,7 @@ class Experiment:
         self.to_be_stopped = False
         self.stop_exception = None
         self.worker_process = None
+        self.network_lock = mp.Lock()
         
     def get_and_send_frame(self, exposure, mode):
         if mode == 'dark':
@@ -106,7 +106,7 @@ class Experiment:
         if self.worker_process is not None:
             self.worker_process.join()
         
-        self.worker_process = mp.Process(target=prepare_send_frame, args=(numpy_image_with_metadata, self))
+        self.worker_process = mp.Process(target=prepare_send_frame, args=(numpy_image_with_metadata, self, self.network_lock))
         self.worker_process.start()
 
     def run(self):
@@ -173,7 +173,7 @@ class Experiment:
 
 # Frame functions
 # @traced
-def prepare_send_frame(numpy_image_with_metadata, experiment):
+def prepare_send_frame(numpy_image_with_metadata, experiment, lock=None):
     image_numpy = numpy_image_with_metadata['image_data']['raw_image']
     del numpy_image_with_metadata['image_data']['raw_image']
     frame_metadata = numpy_image_with_metadata
@@ -182,10 +182,8 @@ def prepare_send_frame(numpy_image_with_metadata, experiment):
         if experiment:
             frame_metadata_event = create_event(event_type='frame', exp_id=experiment.exp_id, MoF=frame_metadata)
             # frame_metadata_event = create_event(event_type='frame', exp_id=1, MoF=frame_metadata)
-            # worker_process = mp.Process(target=send_frame_to_storage_webpage, args=(frame_metadata_event, image_numpy))
-            # worker_process.start()
             send_frame_to_storage_webpage(frame_metadata_event=frame_metadata_event,
-                                          image_numpy=image_numpy)
+                                          image_numpy=image_numpy, lock=lock)
         else:
             make_png(image_numpy)
 
@@ -200,7 +198,7 @@ def prepare_send_frame(numpy_image_with_metadata, experiment):
     return True, None
 
 
-def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
+def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, lock=None):
     s = BytesIO()
     np.savez_compressed(s, frame_data=image_numpy)
     logging.debug(image_numpy.shape)
@@ -208,10 +206,13 @@ def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
     del image_numpy
     data = {'data': json.dumps(frame_metadata_event)}
     files = {'file': s.getvalue()}
-    send_to_storage(storage_uri=STORAGE_FRAMES_URI, data=data, files=files)
+    if lock is not None:
+        lock.acquire()
+    p = mp.Process(target=send_to_storage, args=(STORAGE_FRAMES_URI, data, lock, files))
+    p.start()
 
 
-def send_to_storage(storage_uri, data, files=None):
+def send_to_storage(storage_uri, data, lock=None, files=None):
     try:
         storage_resp = requests.post(storage_uri, files=files, data=data)
     except Exception as e:
@@ -229,6 +230,8 @@ def send_to_storage(storage_uri, data, files=None):
     if storage_resp_dict['result'] != 'success':
         raise ModExpError(error='Problems with storage',
                           exception_message='Storage\'s response:  ' + str(storage_resp_dict['result']))
+    if lock is not None:
+        lock.release()
 
 
 def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
