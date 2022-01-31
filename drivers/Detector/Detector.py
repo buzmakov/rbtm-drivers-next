@@ -5,7 +5,8 @@ import sys
 try: 
     from .ximea import xiapi
 except ImportError:
-    sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3") #TODO: replace to ximea drivers path
+    # sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3") #TODO: replace to ximea drivers path
+    sys.path.insert(0, r"c:\XIMEA\API\Python\v3") #TODO: replace to ximea drivers path
     from ximea import xiapi
 
 import atexit
@@ -34,7 +35,7 @@ class HWDetector(object):
         self.target_temperature = 15.0
         try:
             self.cam.disable_aeag()
-            self.cam.disable_auto_wb()
+            # self.cam.disable_auto_wb()
             self.cam.set_gain(0.0)
             self.cam.set_cooling("XI_TEMP_CTRL_MODE_AUTO")
             self.cam.set_target_temp(self.target_temperature)
