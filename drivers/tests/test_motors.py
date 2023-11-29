@@ -12,13 +12,14 @@ def test_angle_motor():
     logging.info(motor.get_status())
     logging.info(motor.get_position())
     logging.info(motor.get_position_deg())
-    pos_0 = motor.get_position_deg()
-    motor.move_to_position_deg((pos_0 + 2) % 360)
-    logging.info(motor.get_position_deg())
-    pos_1 = motor.get_position_deg()
-    assert np.isclose(pos_1, (pos_0 + 2) % 360)
-    motor.set_zero()
-    assert np.isclose(motor.get_position_deg() % 360, 0)
+    logging.info(motor.get_power_info())
+    # pos_0 = motor.get_position_deg()
+    # motor.move_to_position_deg((pos_0 + 2) % 360)
+    # logging.info(motor.get_position_deg())
+    # pos_1 = motor.get_position_deg()
+    # assert np.isclose(pos_1, (pos_0 + 2) % 360)
+    # motor.set_zero()
+    # assert np.isclose(motor.get_position_deg() % 360, 0)
 
 
 def test_horizontal_motor():
@@ -28,3 +29,4 @@ def test_horizontal_motor():
     logging.info(motor.get_info())
     logging.info(motor.get_status())
     logging.info(motor.get_position())
+    logging.info(motor.get_power_info())

@@ -4,7 +4,7 @@ import numpy as np
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, \
         EnumerateFlags, controller_name_t, device_information_t, string_at, edges_settings_t, engine_settings_t, \
-        MicrostepMode, status_t
+        MicrostepMode, status_t, power_settings_t
 except ImportError as err:
     logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the "
                   "working directory. See developers' documentation for details.")
@@ -52,9 +52,21 @@ class HWMotor(object):
         if not result == Result.Ok:
             logging.error("Motor.set_edges_settings() error: {}".format(result))
             logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.get_edges_settings() error: {}".format(result))
-
+            raise RuntimeError("Motor.set_edges_settings() error: {}".format(result))
         
+        power_settings = power_settings_t()
+        result = lib.get_power_settings(device_id, byref(power_settings))
+        if not result == Result.Ok:
+            logging.error("Motor.get_power_settings() error: {}".format(result))
+            logging.debug("Motor.open() failed")
+            raise RuntimeError("Motor.get_power_settings() error: {}".format(result))
+        
+        power_settings.HoldCurrent = 0
+        result = lib.set_power_settings(device_id, byref(power_settings))
+        if not result == Result.Ok:
+            logging.error("Motor.set_power_settings() error: {}".format(result))
+            logging.debug("Motor.open() failed")
+            raise RuntimeError("Motor.set_power_settings() error: {}".format(result))
 
         self.set_microstep_mode_256()
 
@@ -82,6 +94,23 @@ class HWMotor(object):
             logging.error("Motor.get_info() error: {}".format(result))
             raise RuntimeError("Motor.get_info() error: {}".format(result))
         return res
+    
+    def get_power_info(self):
+        logging.debug("Get device power info")
+        power_settings = power_settings_t()
+        result = lib.get_power_settings(self.device_id, byref(power_settings))
+        print("Result: " + repr(result))
+        res = {}
+        if result == Result.Ok:
+            res["Power.HoldCurrent"] = repr(power_settings.HoldCurrent)
+            res["Power.CurrReductDelay"] = repr(power_settings.CurrReductDelay)
+            res["Power.PowerOffDelay"] = repr(power_settings.PowerOffDelay)
+            res["Power.CurrentSetTime"] = repr(power_settings.CurrentSetTime)
+            res["Power.PowerFlags"] = repr(bin(power_settings.PowerFlags))
+        else:
+            logging.error("Motor.get_power_info() error: {}".format(result))
+            raise RuntimeError("Motor.get_power_info() error: {}".format(result))
+        return res
 
     def get_status(self):
         logging.debug("Get status")
@@ -92,7 +121,7 @@ class HWMotor(object):
             res["Status.Ipwr"] = repr(x_status.Ipwr)
             res["Status.Upwr"] = repr(x_status.Upwr)
             res["Status.Iusb"] = repr(x_status.Iusb)
-            res["Status.Flags"] = repr(hex(x_status.Flags))
+            res["Status.Flags"] = repr(bin(x_status.Flags))
         else:
             logging.error("Motor.get_status() error: {}".format(result))
             raise RuntimeError("Motor.get_status() error: {}".format(result))
