@@ -20,7 +20,8 @@ fi
 if [ ! -d "NVIDIA-Linux-x86_64-$NV_VERSION" ]
 then
 	echo "Downloading NVIDIA drivers package"
-	curl -fLO "http://us.download.nvidia.com/XFree86/Linux-x86_64/$NV_VERSION/NVIDIA-Linux-x86_64-$NV_VERSION.run"
+	curl -fLO "http://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/NVIDIA-Linux-x86_64-${NV_VERSION}.run" || \
+			curl -fLO "http://us.download.nvidia.com/tesla/${NV_VERSION}/NVIDIA-Linux-x86_64-${NV_VERSION}.run"
 	Check
 	chmod a+x "NVIDIA-Linux-x86_64-$NV_VERSION.run"
 	./NVIDIA-Linux-x86_64-$NV_VERSION.run -x
@@ -36,10 +37,8 @@ make clean
 make KERNEL="$KERNEL" module
 Check
 popd
-cp "NVIDIA-Linux-x86_64-$NV_VERSION"/kernel/Module.symvers .
-Check
 echo "Rebuilding ximea_cam_pcie kernel module"
-make KERNEL="$KERNEL" GPUDIRECT=1
+make KERNEL="$KERNEL" GPUDIRECT=1 KBUILD_EXTRA_SYMBOLS="$(pwd)"/"NVIDIA-Linux-x86_64-$NV_VERSION"/kernel/Module.symvers
 Check
 echo "Installing ximea_cam_pcie kernel module"
 make KERNEL="$KERNEL" install
@@ -53,3 +52,14 @@ then
 	modprobe --first-time ximea_cam_pcie
 	Check
 fi
+
+echo "Add the following lines to /etc/rc.local or analogous file:"
+echo 'modprobe ximea_cam_pcie'
+echo 'major="$(grep ximea_cam_pcie /proc/devices | cut -f1 -d\ )"'
+echo 'for i in $(seq "$(lspci -nd deda:|wc -l)")'
+echo 'do'
+echo 'minor="$((i - 1))"'
+echo 'devname="/dev/ximea$(printf "%02d" ${minor})"'
+echo 'mknod -m 660 "${devname}" c "${major}" "${minor}"'
+echo 'chgrp plugdev "${devname}"'
+echo 'done'

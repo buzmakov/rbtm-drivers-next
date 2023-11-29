@@ -1,3 +1,15 @@
+/*
+ * XIMEA PCIe camera kernel driver.
+ *
+ * Copyright (C) 2015-2022 XIMEA, s.r.o.
+ *
+ * Author: Igor Kuzmin
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #ifndef __APPLE__
 #include <linux/ioctl.h>
 #else
@@ -101,3 +113,4 @@ typedef struct {
 #define XIMEA_CAM_PCIE_IOCREADREG_MULT _IOWR(XIMEA_CAM_PCIE_IOC_MAGIC, 9, ximea_cam_pcie_rdreg_args)
 #define XIMEA_CAM_PCIE_IOCSYNCMEM4CPU _IOW(XIMEA_CAM_PCIE_IOC_MAGIC, 10, ximea_cam_pcie_unlockmem_args)
 #define XIMEA_CAM_PCIE_IOCSYNCMEM4DEV _IOW(XIMEA_CAM_PCIE_IOC_MAGIC, 11, ximea_cam_pcie_unlockmem_args)
+#define XIMEA_CAM_PCIE_IOCGETBUF _IOWR(XIMEA_CAM_PCIE_IOC_MAGIC, 13, ximea_cam_pcie_unlockmem_args)

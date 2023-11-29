@@ -887,6 +887,10 @@ MM40_API MM40_RETURN __cdecl mmGetDeviceExt (
 			OUT char * pChipId,					// Ptr to chip ID
 			IN  DWORD str_len);					//Lenght of string pChipId
 
+MM40_RETURN __cdecl mmSetDevice(
+	IN  DWORD nIndex,					// Index
+	IN	DWORD pChipId);				// chip ID
+
 /**
    \brief Get Firmware Version
 
@@ -930,6 +934,7 @@ MM40_API MM40_RETURN __cdecl mmGetModelName			(IN HANDLE hDevice, OUT LPDWORD lp
  */
 MM40_API MM40_RETURN __cdecl mmGetDeviceName			(IN HANDLE hDevice, OUT char * string, IN DWORD str_lenght );
 MM40_API MM40_RETURN __cdecl mmGetDeviceNameBySerialNumber (IN DWORD dwSerial, OUT char * string, IN DWORD str_lenght );
+MM40_API MM40_RETURN __cdecl mmGetDeviceNameByExtSerialNumber (IN const char * sn_string, OUT char * string, IN DWORD str_length);
 
 /**
    \brief Gets model's family (MM, MR, MU, MS.....)

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <RegisterDescription>
 	<Group Comment="Basic">
-		<Integer>
+		<Float>
 			<DisplayName>Exposure</DisplayName>
 			<Visibility>Beginner</Visibility>
 			<Representation>Logarithmic</Representation>
@@ -9,7 +9,32 @@
 			<pMin>exposureMinReg</pMin>
 			<pMax>exposureMaxReg</pMax>
 			<pInc>exposureIncReg</pInc>
-		</Integer>
+		</Float>
+	    <Enumeration>
+		  <DisplayName>Exposure time selector</DisplayName>
+		  <Visibility>Guru</Visibility>
+		  <EnumEntry>
+			<DisplayName>All</DisplayName>
+			<Value>0</Value>
+		  </EnumEntry>
+		  <EnumEntry>
+			<DisplayName>Group1</DisplayName>
+			<Value>1</Value>
+		  </EnumEntry>
+		  <EnumEntry>
+			<DisplayName>Group2</DisplayName>
+			<Value>2</Value>
+		  </EnumEntry>
+			<EnumEntry>
+				<DisplayName>DualTrg Exp Zone 1</DisplayName>
+				<Value>3</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>DualTrg Exp Zone 2</DisplayName>
+				<Value>4</Value>
+			</EnumEntry>
+		  <pValue>ExposureTimeSelectorReg</pValue>
+		</Enumeration>
     <Enumeration>
       <DisplayName>Gain selector</DisplayName>
       <Description>Gain selector for parameter Gain allows to select different type of gains.</Description>
@@ -41,6 +66,14 @@
       <EnumEntry>
         <DisplayName>Analog Tap 4</DisplayName>
         <Value>6</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>Analog North</DisplayName>
+        <Value>7</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>Analog South</DisplayName>
+        <Value>8</Value>
       </EnumEntry>
       <pValue>GainSelectorReg</pValue>
       <pSelected>Gain</pSelected>
@@ -285,6 +318,19 @@
 			<AppDefault>1</AppDefault>
 		</Boolean>
 		<Boolean>
+			<DisplayName>Column black offset correction</DisplayName>
+			<Visibility>Expert</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<pValue>column_black_offset_correctionReg</pValue>
+		</Boolean>
+		<Boolean>
+			<DisplayName>Row black offset correction</DisplayName>
+			<Visibility>Expert</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<pValue>row_black_offset_correctionReg</pValue>
+			<AppDefault>1</AppDefault>
+		</Boolean>
+		<Boolean>
 			<DisplayName>AWB</DisplayName>
 			<Visibility>Beginner</Visibility>
 			<pValue>auto_wbReg</pValue>
@@ -381,7 +427,6 @@
 		<Boolean>
 			<DisplayName>Image flat field correction</DisplayName>
 			<Visibility>Beginner</Visibility>
-			<pIsLocked>TLParamsLocked</pIsLocked>
 			<pValue>FlatFieldCorrectionReg</pValue>
 		</Boolean>
 		<String>
@@ -414,6 +459,109 @@
 		  <pIsLocked>TLParamsLocked</pIsLocked>
 		  <pValue>VerticalFlipReg</pValue>
 		</Boolean>
+		<Enumeration>
+		  <DisplayName>Interline Exposure Mode</DisplayName>
+		  <Visibility>Guru</Visibility>
+		  <EnumEntry>
+			<DisplayName>Off</DisplayName>
+			<Value>0</Value>
+		  </EnumEntry>
+		  <EnumEntry>
+			<DisplayName>On</DisplayName>
+			<Value>1</Value>
+		  </EnumEntry>
+		  <pValue>InterlineExposureModeReg</pValue>
+		</Enumeration>
+	</Group>
+	<Group Comment="Time of Flight (ToF)">
+		<Enumeration>
+			<DisplayName>ToF Readout Mode</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<EnumEntry>
+				<DisplayName>A only</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>B only</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>A - B</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>A + B</DisplayName>
+				<Value>3</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>A and B</DisplayName>
+				<Value>4</Value>
+			</EnumEntry>
+			<pValue>TofReadoutModeReg</pValue>
+		</Enumeration>
+		<Float>
+			<DisplayName>ToF Modulation frequency</DisplayName>
+			<Unit>MHz</Unit>
+			<Visibility>Beginner</Visibility>
+			<pValue>tof_modulation_frequencyReg</pValue>
+			<pMin>tof_modulation_frequencyMinReg</pMin>
+			<pMax>tof_modulation_frequencyMaxReg</pMax>
+		</Float>
+		<Boolean>
+			<DisplayName>ToF Multiple phases in buffer</DisplayName>
+			<Visibility>Invisible</Visibility>
+			<ImposedAccessMode>RO</ImposedAccessMode>
+			<pValue>tof_multiple_phases_in_bufferReg</pValue>
+		</Boolean>
+		<Enumeration>
+			<DisplayName>ToF Phases count</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<EnumEntry>
+				<DisplayName>1</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4</DisplayName>
+				<Value>4</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>8</DisplayName>
+				<Value>8</Value>
+			</EnumEntry>
+			<pValue>tof_phases_countReg</pValue>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+		</Enumeration>
+		<Integer>
+			<DisplayName>ToF Phase selector</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<Representation>Linear</Representation>
+			<pValue>tof_phase_selectorReg</pValue>
+			<pMin>tof_phase_selectorMinReg</pMin>
+			<pMax>tof_phase_selectorMaxReg</pMax>
+			<pInc>tof_phase_selectorIncReg</pInc>
+			<pSelected>TofPhaseAngle</pSelected>
+			<pSelected>TofPhaseExposureTime</pSelected>
+		</Integer>
+		<Float Name="TofPhaseAngle">
+			<DisplayName>ToF Phase angle</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<pValue>tof_phase_angleReg</pValue>
+			<pMin>tof_phase_angleMinReg</pMin>
+			<pMax>tof_phase_angleMaxReg</pMax>
+		</Float>
+		<Float Name="TofPhaseExposureTime">
+			<DisplayName>ToF Phase exposure time</DisplayName>
+			<Unit>µs</Unit>
+			<Visibility>Beginner</Visibility>
+			<pValue>tof_phase_exposure_timeReg</pValue>
+			<pMin>tof_phase_exposure_timeMinReg</pMin>
+			<pMax>tof_phase_exposure_timeMaxReg</pMax>
+		</Float>
 	</Group>
 	<Group Comment="AE Setup">
 		<Float>
@@ -449,6 +597,20 @@
 		</Float>
 	</Group>
 	<Group Comment="Image Format">
+	<Enumeration Name="ImageArea">
+		<DisplayName>Image Area</DisplayName>
+		<Visibility>Beginner</Visibility>
+		<pValue>ImageAreaReg</pValue>
+		<pIsLocked>TLParamsLocked</pIsLocked>
+		<EnumEntry>
+			<DisplayName>Active</DisplayName>
+			<Value>0</Value>
+		</EnumEntry>
+		<EnumEntry>
+			<DisplayName>ActiveAndMasked</DisplayName>
+			<Value>1</Value>
+		</EnumEntry>
+	</Enumeration>
     <Enumeration>
       <DisplayName>Binning Selector</DisplayName>
       <Description>Binning engine selector.</Description>
@@ -474,7 +636,7 @@
       <pSelected>BinningVerticalPattern</pSelected>
       <pSelected>BinningHorizontalPattern</pSelected>
     </Enumeration>
-    <Integer Name="BinningVertical">
+    <Enumeration Name="BinningVertical">
       <DisplayName>Binning Vertical</DisplayName>
       <Description>Vertical Binning - number of vertical photo-sensitive cells to combine together.</Description>
       <Visibility>Guru</Visibility>
@@ -482,9 +644,42 @@
       <pValue>binning_verticalReg</pValue>
       <pMin>binning_verticalMinReg</pMin>
       <pMax>binning_verticalMaxReg</pMax>
+      <EnumEntry>
+        <DisplayName>1</DisplayName>
+        <Value>1</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>2</DisplayName>
+        <Value>2</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>3</DisplayName>
+        <Value>3</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>4</DisplayName>
+        <Value>4</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>8</DisplayName>
+        <Value>8</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>16</DisplayName>
+        <Value>16</Value>
+      </EnumEntry>
       <ImposedAccessMode>RW</ImposedAccessMode>
-    </Integer>
-    <Integer Name="BinningHorizontal">
+    </Enumeration>
+	<Float>
+		<DisplayName>BinningVerticalFloat</DisplayName>
+		<Visibility>Guru</Visibility>
+		<Representation>Linear</Representation>
+		<pValue>binning_vertical_floatReg</pValue>
+		<pMin>binning_vertical_floatMinReg</pMin>
+		<pMax>binning_vertical_floatMaxReg</pMax>
+		<pInc>binning_vertical_floatIncReg</pInc>
+	</Float>
+    <Enumeration Name="BinningHorizontal">
       <DisplayName>Binning Horizontal</DisplayName>
       <Description>Horizontal Binning - number of horizontal photo-sensitive cells to combine together.</Description>
       <Visibility>Guru</Visibility>
@@ -492,8 +687,41 @@
       <pValue>binning_horizontalReg</pValue>
       <pMin>binning_horizontalMinReg</pMin>
       <pMax>binning_horizontalMaxReg</pMax>
+      <EnumEntry>
+        <DisplayName>1</DisplayName>
+        <Value>1</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>2</DisplayName>
+        <Value>2</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>3</DisplayName>
+        <Value>3</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>4</DisplayName>
+        <Value>4</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>8</DisplayName>
+        <Value>8</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>16</DisplayName>
+        <Value>16</Value>
+      </EnumEntry>
       <ImposedAccessMode>RW</ImposedAccessMode>
-    </Integer>
+    </Enumeration>
+	<Float>
+		<DisplayName>BinningHorizontalFloat</DisplayName>
+		<Visibility>Guru</Visibility>
+		<Representation>Linear</Representation>
+		<pValue>binning_horizontal_floatReg</pValue>
+		<pMin>binning_horizontal_floatMinReg</pMin>
+		<pMax>binning_horizontal_floatMaxReg</pMax>
+		<pInc>binning_horizontal_floatIncReg</pInc>
+	</Float>
     <Enumeration Name="BinningVerticalMode">
       <DisplayName>Binning Vertical Mode</DisplayName>
       <Description>Sets the mode to use to combine vertical pixel together.</Description>
@@ -581,7 +809,7 @@
       <pSelected>DecimationVerticalPattern</pSelected>
       <pSelected>DecimationHorizontalPattern</pSelected>
     </Enumeration>
-    <Integer Name="DecimationVertical">
+    <Enumeration Name="DecimationVertical">
       <DisplayName>Decimation Vertical</DisplayName>
       <Description>Vertical Decimation - vertical sub-sampling of the image - reduces the vertical resolution of the image by the specified vertical decimation factor.</Description>
       <Visibility>Guru</Visibility>
@@ -589,9 +817,33 @@
       <pValue>decimation_verticalReg</pValue>
       <pMin>decimation_verticalMinReg</pMin>
       <pMax>decimation_verticalMaxReg</pMax>
+      <EnumEntry>
+        <DisplayName>1</DisplayName>
+        <Value>1</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>2</DisplayName>
+        <Value>2</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>3</DisplayName>
+        <Value>3</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>4</DisplayName>
+        <Value>4</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>8</DisplayName>
+        <Value>8</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>16</DisplayName>
+        <Value>16</Value>
+      </EnumEntry>
       <ImposedAccessMode>RW</ImposedAccessMode>
-    </Integer>
-    <Integer Name="DecimationHorizontal">
+    </Enumeration>
+    <Enumeration Name="DecimationHorizontal">
       <DisplayName>Decimation Horizontal</DisplayName>
       <Description>Horizontal Decimation - horizontal sub-sampling of the image - reduces the horizontal resolution of the image by the specified vertical decimation factor.</Description>
       <Visibility>Guru</Visibility>
@@ -599,8 +851,32 @@
       <pValue>decimation_horizontalReg</pValue>
       <pMin>decimation_horizontalMinReg</pMin>
       <pMax>decimation_horizontalMaxReg</pMax>
+      <EnumEntry>
+        <DisplayName>1</DisplayName>
+        <Value>1</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>2</DisplayName>
+        <Value>2</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>3</DisplayName>
+        <Value>3</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>4</DisplayName>
+        <Value>4</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>8</DisplayName>
+        <Value>8</Value>
+      </EnumEntry>
+      <EnumEntry>
+        <DisplayName>16</DisplayName>
+        <Value>16</Value>
+      </EnumEntry>
       <ImposedAccessMode>RW</ImposedAccessMode>
-    </Integer>
+    </Enumeration>
     <Enumeration Name="DecimationVerticalPattern">
       <DisplayName>Decimation Vertical Pattern</DisplayName>
       <Description>Decimation vertical pattern type.</Description>
@@ -721,6 +997,15 @@
 			<pMin>limit_bandwidthMinReg</pMin>
 			<pMax>limit_bandwidthMaxReg</pMax>
 			<pInc>limit_bandwidthIncReg</pInc>
+		</Integer>
+		<Integer>
+			<DisplayName>Buffers queue size</DisplayName>
+			<Visibility>Guru</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<pValue>buffers_queue_sizeReg</pValue>
+			<pMin>buffers_queue_sizeMinReg</pMin>
+			<pMax>buffers_queue_sizeMaxReg</pMax>
+			<pInc>buffers_queue_sizeIncReg</pInc>
 		</Integer>
 		<Enumeration>
 			<DisplayName>Sensor bit depth</DisplayName>
@@ -866,7 +1151,7 @@
 			<pIsLocked>TLParamsLocked</pIsLocked>
 			<pValue>LUTEnableReg</pValue>
 		</Boolean>
-    <Integer>
+		<Integer>
 			<DisplayName>LUT Index</DisplayName>
 			<Visibility>Expert</Visibility>
 			<pIsLocked>TLParamsLocked</pIsLocked>
@@ -874,9 +1159,9 @@
 			<pMin>LUTIndexMinReg</pMin>
 			<pMax>LUTIndexMaxReg</pMax>
 			<pInc>LUTIndexIncReg</pInc>
-      <pSelected>LUTValue</pSelected>
-    </Integer>
-    <Integer Name="LUTValue">
+			<pSelected>LUTValue</pSelected>
+		</Integer>
+		<Integer Name="LUTValue">
 			<DisplayName>LUT Value</DisplayName>
 			<Visibility>Expert</Visibility>
 			<pIsLocked>TLParamsLocked</pIsLocked>
@@ -884,7 +1169,136 @@
 			<pMin>LUTValueMinReg</pMin>
 			<pMax>LUTValueMaxReg</pMax>
 			<pInc>LUTValueIncReg</pInc>
-    </Integer>
+		</Integer>
+		<Enumeration>
+			<DisplayName>Sensor feature selector</DisplayName>
+			<Visibility>Guru</Visibility>
+			<pValue>sensor_feature_selectorReg</pValue>
+			<EnumEntry>
+				<DisplayName>Enable Zero ROT</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Set black level claping</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Set black level clamping</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Disable MD gain digital component</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Sensor acquisition running status</DisplayName>
+				<Value>3</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Sensor Timing mode</DisplayName>
+				<Value>4</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Parallel ADC</DisplayName>
+				<Value>5</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Sensor black level offset raw</DisplayName>
+				<Value>6</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Short Interval Shutter</DisplayName>
+				<Value>7</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>High Conversion Gain</DisplayName>
+				<Value>9</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>DualTrigger Exposure Zone Divider Position</DisplayName>
+				<Value>10</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>ToF VCSEL Control Voltage in mV</DisplayName>
+				<Value>11</Value>
+			</EnumEntry>
+		</Enumeration>
+		<Integer>
+			<DisplayName>Sensor feature value</DisplayName>
+			<Visibility>Guru</Visibility>
+			<pValue>sensor_feature_valueReg</pValue>
+			<pMin>sensor_feature_valueMinReg</pMin>
+			<pMax>sensor_feature_valueMaxReg</pMax>
+		</Integer>
+		<Enumeration>
+			<DisplayName>DualADC Mode</DisplayName>
+			<Visibility>Expert</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<EnumEntry>
+				<DisplayName>Off</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Combined</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>NonCombined</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<pValue>DualADCModeReg</pValue>
+		</Enumeration>
+		<Float>
+			<DisplayName>DualADC Gain Ratio</DisplayName>
+			<Unit>dB</Unit>
+			<Visibility>Expert</Visibility>
+			<pValue>dual_adc_gain_ratioReg</pValue>
+			<pMin>dual_adc_gain_ratioMinReg</pMin>
+			<pMax>dual_adc_gain_ratioMaxReg</pMax>
+		</Float>
+		<Integer>
+			<DisplayName>DualADC Threshold</DisplayName>
+			<Unit>%</Unit>
+			<Visibility>Expert</Visibility>
+			<pValue>dual_adc_thresholdReg</pValue>
+			<pMin>dual_adc_thresholdMinReg</pMin>
+			<pMax>dual_adc_thresholdMaxReg</pMax>
+			<pInc>dual_adc_thresholdIncReg</pInc>
+		</Integer>
+		<Enumeration>
+			<DisplayName>Compression Region Selector</DisplayName>
+			<Visibility>Expert</Visibility>
+			<EnumEntry>
+				<DisplayName>1</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<pValue>compression_region_selectorReg</pValue>
+			<pMin>compression_region_selectorMinReg</pMin>
+			<pMax>compression_region_selectorMaxReg</pMax>
+			<pInc>compression_region_selectorIncReg</pInc>
+			<pSelected>CompressionRegionStart</pSelected>
+			<pSelected>CompressionRegionGain</pSelected>
+		</Enumeration>
+		<Float Name="CompressionRegionStart">
+			<DisplayName>Compression Region Start</DisplayName>
+			<Unit>%</Unit>
+			<Visibility>Expert</Visibility>
+			<pValue>compression_region_startReg</pValue>
+			<pMin>compression_region_startMinReg</pMin>
+			<pMax>compression_region_startMaxReg</pMax>
+		</Float>
+		<Float Name="CompressionRegionGain">>
+			<DisplayName>Compression Region Gain</DisplayName>
+			<Unit>dB</Unit>
+			<Visibility>Expert</Visibility>
+			<pValue>compression_region_gainReg</pValue>
+			<pMin>compression_region_gainMinReg</pMin>
+			<pMax>compression_region_gainMaxReg</pMax>
+		</Float>
 	</Group>
 	<Group Comment="Temperature">
 		<Boolean>
@@ -905,29 +1319,52 @@
 			<pMin>target_tempMinReg</pMin>
 			<pMax>target_tempMaxReg</pMax>
 		</Float>
+		<Enumeration>
+			<DisplayName>Temperature sensor selector</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<pValue>temp_selectorReg</pValue>
+			<EnumEntry>
+				<DisplayName>Image sensor die (non-calibrated)</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Image sensor die (calibrated)</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Image sensor PCB</DisplayName>
+				<Value>2</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Data interface PCB</DisplayName>
+				<Value>3</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Front part of camera housing</DisplayName>
+				<Value>4</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Rear part of camera housing</DisplayName>
+				<Value>5</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>TEC1 cold side temperature</DisplayName>
+				<Value>6</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>TEC1 hot side temperature</DisplayName>
+				<Value>7</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>VCSEL board temperature</DisplayName>
+				<Value>8</Value>
+			</EnumEntry>
+		</Enumeration>
 		<Float>
-			<DisplayName>TempSensor</DisplayName>
+			<DisplayName>Temperature</DisplayName>
 			<ImposedAccessMode>RO</ImposedAccessMode>
 			<Visibility>Beginner</Visibility>
-			<pValue>chip_tempReg</pValue>
-		</Float>
-		<Float>
-			<DisplayName>TempHousing</DisplayName>
-			<ImposedAccessMode>RO</ImposedAccessMode>
-			<Visibility>Beginner</Visibility>
-			<pValue>hous_tempReg</pValue>
-		</Float>
-		<Float>
-			<DisplayName>TempHousingBackSide</DisplayName>
-			<ImposedAccessMode>RO</ImposedAccessMode>
-			<Visibility>Beginner</Visibility>
-			<pValue>hous_back_side_tempReg</pValue>
-		</Float>
-		<Float>
-			<DisplayName>TempSensorBoard</DisplayName>
-			<ImposedAccessMode>RO</ImposedAccessMode>
-			<Visibility>Beginner</Visibility>
-			<pValue>sensor_board_tempReg</pValue>
+			<pValue>tempReg</pValue>
 		</Float>
 	</Group>
 	<Group Comment="Color Correction">
@@ -1212,6 +1649,7 @@
 		<Integer>
 			<DisplayName>Trigger delay</DisplayName>
 			<Visibility>Guru</Visibility>
+			<pIsLocked>TLParamsLocked</pIsLocked>
 			<pValue>TriggerDelayReg</pValue>
 			<pMax>TriggerDelayRangeMaxReg</pMax>
 			<pMin>TriggerDelayRangeMinReg</pMin>
@@ -1245,6 +1683,30 @@
 			<EnumEntry>
 				<DisplayName>GPI 6</DisplayName>
 				<Value>6</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 7</DisplayName>
+				<Value>7</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 8</DisplayName>
+				<Value>8</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 9</DisplayName>
+				<Value>9</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 10</DisplayName>
+				<Value>10</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 11</DisplayName>
+				<Value>11</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPI 12</DisplayName>
+				<Value>12</Value>
 			</EnumEntry>
 			<pValue>gpi_selectorReg</pValue>
 			<pSelected>GpiMode</pSelected>
@@ -1299,6 +1761,30 @@
 			<EnumEntry>
 				<DisplayName>GPO 6</DisplayName>
 				<Value>6</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 7</DisplayName>
+				<Value>7</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 8</DisplayName>
+				<Value>8</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 9</DisplayName>
+				<Value>9</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 10</DisplayName>
+				<Value>10</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 11</DisplayName>
+				<Value>11</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>GPO 12</DisplayName>
+				<Value>12</Value>
 			</EnumEntry>
 			<pValue>gpo_selectorReg</pValue>
 			<pSelected>GpoMode</pSelected>
@@ -1359,6 +1845,30 @@
 				<DisplayName>High Impedance (tri-state)</DisplayName>
 				<Value>12</Value>
 			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Frame buffer overflow</DisplayName>
+				<Value>13</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Exposure active first row</DisplayName>
+				<Value>14</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Exposure active first row (neg.)</DisplayName>
+				<Value>15</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Exposure active all rows</DisplayName>
+				<Value>16</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>Exposure active all rows (neg.)</DisplayName>
+				<Value>17</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>UART TxD</DisplayName>
+				<Value>18</Value>
+			</EnumEntry>
 		</Enumeration>
 		<Enumeration>
 			<DisplayName>LEDSelector</DisplayName>
@@ -1378,6 +1888,10 @@
 			<EnumEntry>
 				<DisplayName>LED 4</DisplayName>
 				<Value>4</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>LED 5</DisplayName>
+				<Value>5</Value>
 			</EnumEntry>
 			<pValue>led_selectorReg</pValue>
 			<pSelected>LedMode</pSelected>
@@ -1581,23 +2095,342 @@
 			<ImposedAccessMode>RW</ImposedAccessMode>
 		</Float>
 	</Group>
+	<Group Comment="User Set Control">
+		<Enumeration>
+			<DisplayName>User Set selector</DisplayName>
+			<Visibility>Beginner</Visibility>	
+			<EnumEntry>
+				<DisplayName>Default</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>User Set 1</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>12-STD-L</DisplayName>
+				<Value>10</Value>
+			</EnumEntry>		
+			<EnumEntry>
+				<DisplayName>12-STD-H</DisplayName>
+				<Value>11</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>14-STD-L</DisplayName>
+				<Value>12</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>14-STD-H</DisplayName>
+				<Value>13</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-S-L</DisplayName>
+				<Value>14</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-S-H</DisplayName>
+				<Value>15</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-CMS-S-L</DisplayName>
+				<Value>16</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-CMS-S-H</DisplayName>
+				<Value>17</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-12-CMS-S-L</DisplayName>
+				<Value>18</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-12-CMS-S-H</DisplayName>
+				<Value>19</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-14-CMS-S-L</DisplayName>
+				<Value>20</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-14-CMS-S-H</DisplayName>
+				<Value>21</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-HL</DisplayName>
+				<Value>22</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-L</DisplayName>
+				<Value>23</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-H</DisplayName>
+				<Value>24</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-12-CMS-HDR-HL</DisplayName>
+				<Value>25</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-HDR-L</DisplayName>
+				<Value>26</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-HDR-H</DisplayName>
+				<Value>27</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-A-L</DisplayName>
+				<Value>28</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-A-H</DisplayName>
+				<Value>29</Value>
+			</EnumEntry>
+			<pValue>UserSetSelectorReg</pValue>
+			<pSelected>UserSetLoad</pSelected>
+		</Enumeration>
+		<Command Name="UserSetLoad">
+			<DisplayName>User Set load</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<pValue>UserSetLoadReg</pValue>
+			<ImposedAccessMode>W</ImposedAccessMode>
+			<pIsLocked>TLParamsLocked</pIsLocked>
+			<InvalidatesAllParams>1</InvalidatesAllParams>
+		</Command>
+		<Enumeration>
+			<DisplayName>User Set Default on Open</DisplayName>
+			<Visibility>Beginner</Visibility>
+			<EnumEntry>
+				<DisplayName>Default</DisplayName>
+				<Value>0</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>User Set 1</DisplayName>
+				<Value>1</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>12-STD-L</DisplayName>
+				<Value>10</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>12-STD-H</DisplayName>
+				<Value>11</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>14-STD-L</DisplayName>
+				<Value>12</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>14-STD-H</DisplayName>
+				<Value>13</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-S-L</DisplayName>
+				<Value>14</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-S-H</DisplayName>
+				<Value>15</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-CMS-S-L</DisplayName>
+				<Value>16</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-CMS-S-H</DisplayName>
+				<Value>17</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-12-CMS-S-L</DisplayName>
+				<Value>18</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>14-12-CMS-S-H</DisplayName>
+				<Value>19</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-14-CMS-S-L</DisplayName>
+				<Value>20</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-14-CMS-S-H</DisplayName>
+				<Value>21</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-HL</DisplayName>
+				<Value>22</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-L</DisplayName>
+				<Value>23</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-HDR-H</DisplayName>
+				<Value>24</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>4-12-CMS-HDR-HL</DisplayName>
+				<Value>25</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-HDR-L</DisplayName>
+				<Value>26</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-14-HDR-H</DisplayName>
+				<Value>27</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-A-L</DisplayName>
+				<Value>28</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>2-12-CMS-A-H</DisplayName>
+				<Value>29</Value>
+			</EnumEntry>
+			<EnumEntry>
+				<DisplayName>None</DisplayName>
+				<Value>999</Value>
+			</EnumEntry>
+			<pValue>UserSetDefaultReg</pValue>
+		</Enumeration>
+	</Group>
 	<Group Comment="Registers">
-		<IntReg Name="exposureReg">
+		<FloatReg Name="exposureReg">
 			<xiApiPar>exposure</xiApiPar>
 			<pInvalidator>limit_bandwidthReg</pInvalidator>
-		</IntReg>
+			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>downsampling_typeReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>output_bit_depthReg</pInvalidator>
+			<pInvalidator>output_bit_packingReg</pInvalidator>
+			<pInvalidator>ExposureTimeSelectorReg</pInvalidator>
+		</FloatReg>
 		<IntReg Name="exposureMinReg">
 			<xiApiPar>exposure:min</xiApiPar>
 			<pInvalidator>limit_bandwidthReg</pInvalidator>
+			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>downsampling_typeReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>output_bit_depthReg</pInvalidator>
+			<pInvalidator>output_bit_packingReg</pInvalidator>
+			<pInvalidator>ExposureTimeSelectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="exposureMaxReg">
 			<xiApiPar>exposure:max</xiApiPar>
 			<pInvalidator>limit_bandwidthReg</pInvalidator>
+			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>downsampling_typeReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>output_bit_depthReg</pInvalidator>
+			<pInvalidator>output_bit_packingReg</pInvalidator>
+			<pInvalidator>ExposureTimeSelectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="exposureIncReg">
 			<xiApiPar>exposure:inc</xiApiPar>
 			<pInvalidator>limit_bandwidthReg</pInvalidator>
+			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>downsampling_typeReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>output_bit_depthReg</pInvalidator>
+			<pInvalidator>output_bit_packingReg</pInvalidator>
+			<pInvalidator>ExposureTimeSelectorReg</pInvalidator>
 		</IntReg>
+	    <IntReg Name="ExposureTimeSelectorReg">
+			<xiApiPar>exposure_time_selector</xiApiPar>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="DualADCModeReg">
+			<xiApiPar>dual_adc_mode</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_gain_ratioReg">
+			<xiApiPar>dual_adc_gain_ratio</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="dual_adc_gain_ratioMinReg">
+			<xiApiPar>dual_adc_gain_ratio:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_gain_ratioMaxReg">
+			<xiApiPar>dual_adc_gain_ratio:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_gain_ratioIncReg">
+			<xiApiPar>dual_adc_gain_ratio:inc</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_thresholdReg">
+			<xiApiPar>dual_adc_threshold</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="dual_adc_thresholdMinReg">
+			<xiApiPar>dual_adc_threshold:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_thresholdMaxReg">
+			<xiApiPar>dual_adc_threshold:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="dual_adc_thresholdIncReg">
+			<xiApiPar>dual_adc_threshold:inc</xiApiPar>
+		</IntReg>
+		<IntReg Name="compression_region_selectorReg">
+			<xiApiPar>compression_region_selector</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="compression_region_selectorMinReg">
+			<xiApiPar>compression_region_selector:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="compression_region_selectorMaxReg">
+			<xiApiPar>compression_region_selector:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="compression_region_selectorIncReg">
+			<xiApiPar>compression_region_selector:inc</xiApiPar>
+		</IntReg>
+		<FloatReg Name="compression_region_startReg">
+			<xiApiPar>compression_region_start</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+			<pInvalidator>dual_adc_gain_ratioReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="compression_region_startMinReg">
+			<xiApiPar>compression_region_start:min</xiApiPar>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+			<pInvalidator>dual_adc_gain_ratioReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="compression_region_startMaxReg">
+			<xiApiPar>compression_region_start:max</xiApiPar>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="compression_region_gainReg">
+			<xiApiPar>compression_region_gain</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="compression_region_gainMinReg">
+			<xiApiPar>compression_region_gain:min</xiApiPar>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="compression_region_gainMaxReg">
+			<xiApiPar>compression_region_gain:max</xiApiPar>
+			<pInvalidator>compression_region_selectorReg</pInvalidator>
+		</FloatReg>
     <IntReg Name="GainSelectorReg">
       <xiApiPar>gain_selector</xiApiPar>
     </IntReg>
@@ -1608,7 +2441,13 @@
 			<pInvalidator>downsampling_typeReg</pInvalidator>
 			<pInvalidator>binning_verticalReg</pInvalidator>
 			<pInvalidator>binning_horizontalReg</pInvalidator>
-			 <pInvalidator>hdrReg</pInvalidator>
+			<pInvalidator>hdrReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>UserSetLoadReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>shutter_typeReg</pInvalidator>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>dual_adc_gain_ratioReg</pInvalidator>
 		</FloatReg>
 		<FloatReg Name="gainMinReg">
 			<xiApiPar>gain:min</xiApiPar>
@@ -1618,6 +2457,10 @@
 			<pInvalidator>binning_verticalReg</pInvalidator>
 			<pInvalidator>binning_horizontalReg</pInvalidator>
 			 <pInvalidator>hdrReg</pInvalidator>
+			 <pInvalidator>sensor_bit_depthReg</pInvalidator>
+			 <pInvalidator>UserSetLoadReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+			<pInvalidator>shutter_typeReg</pInvalidator>
 		</FloatReg>
 		<FloatReg Name="gainMaxReg">
 			<xiApiPar>gain:max</xiApiPar>
@@ -1627,6 +2470,10 @@
 			<pInvalidator>binning_verticalReg</pInvalidator>
 			<pInvalidator>binning_horizontalReg</pInvalidator>
 			 <pInvalidator>hdrReg</pInvalidator>
+			 <pInvalidator>sensor_bit_depthReg</pInvalidator>
+			 <pInvalidator>UserSetLoadReg</pInvalidator>
+			 <pInvalidator>DualADCModeReg</pInvalidator>
+			 <pInvalidator>dual_adc_gain_ratioReg</pInvalidator>
 		</FloatReg>
 		<IntReg Name="downsamplingReg">
 			<xiApiPar>downsampling</xiApiPar>
@@ -1812,8 +2659,10 @@
     </IntReg>
     <IntReg Name="binning_verticalReg">
       <xiApiPar>binning_vertical</xiApiPar>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
       <pInvalidator>binning_selectorReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
       <pInvalidator>binning_horizontalReg</pInvalidator>
 	  <pInvalidator>binning_vertical_patternReg</pInvalidator>
 	  <pInvalidator>binning_horizontal_patternReg</pInvalidator>
@@ -1821,20 +2670,34 @@
       <pInvalidator>decimation_horizontalReg</pInvalidator>
 	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
 	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="binning_verticalMinReg">
       <xiApiPar>binning_vertical:min</xiApiPar>
       <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
     </IntReg>
     <IntReg Name="binning_verticalMaxReg">
       <xiApiPar>binning_vertical:max</xiApiPar>
       <pInvalidator>binning_selectorReg</pInvalidator>
 	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
     </IntReg>
-    <IntReg Name="binning_horizontalReg">
-      <xiApiPar>binning_horizontal</xiApiPar>
+	<FloatReg Name="binning_vertical_floatReg">
+      <xiApiPar>binning_vertical_float</xiApiPar>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
       <pInvalidator>binning_selectorReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
       <pInvalidator>binning_horizontalReg</pInvalidator>
 	  <pInvalidator>binning_vertical_patternReg</pInvalidator>
 	  <pInvalidator>binning_horizontal_patternReg</pInvalidator>
@@ -1842,14 +2705,118 @@
       <pInvalidator>decimation_horizontalReg</pInvalidator>
 	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
 	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+    </FloatReg>
+    <IntReg Name="binning_vertical_floatMinReg">
+      <xiApiPar>binning_vertical_float:min</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+    </IntReg>
+    <IntReg Name="binning_vertical_floatMaxReg">
+      <xiApiPar>binning_vertical_float:max</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
+    </IntReg>
+	<IntReg Name="binning_vertical_floatIncReg">
+      <xiApiPar>binning_vertical_float:inc</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
+    </IntReg>
+    <IntReg Name="binning_horizontalReg">
+      <xiApiPar>binning_horizontal</xiApiPar>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+      <pInvalidator>binning_verticalReg</pInvalidator>
+	  <pInvalidator>binning_vertical_patternReg</pInvalidator>
+	  <pInvalidator>binning_horizontal_patternReg</pInvalidator>
+      <pInvalidator>decimation_verticalReg</pInvalidator>
+      <pInvalidator>decimation_horizontalReg</pInvalidator>
+	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
+	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="binning_horizontalMinReg">
       <xiApiPar>binning_horizontal:min</xiApiPar>
       <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
     </IntReg>
     <IntReg Name="binning_horizontalMaxReg">
       <xiApiPar>binning_horizontal:max</xiApiPar>
       <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
+    </IntReg>
+	<FloatReg Name="binning_horizontal_floatReg">
+      <xiApiPar>binning_horizontal_float</xiApiPar>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+      <pInvalidator>binning_horizontalReg</pInvalidator>
+	  <pInvalidator>binning_vertical_patternReg</pInvalidator>
+	  <pInvalidator>binning_horizontal_patternReg</pInvalidator>
+      <pInvalidator>decimation_verticalReg</pInvalidator>
+      <pInvalidator>decimation_horizontalReg</pInvalidator>
+	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
+	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+    </FloatReg>
+    <IntReg Name="binning_horizontal_floatMinReg">
+      <xiApiPar>binning_horizontal_float:min</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+    </IntReg>
+    <IntReg Name="binning_horizontal_floatMaxReg">
+      <xiApiPar>binning_horizontal_float:max</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
+    </IntReg>
+	<IntReg Name="binning_horizontal_floatIncReg">
+      <xiApiPar>binning_horizontal_float:inc</xiApiPar>
+      <pInvalidator>binning_selectorReg</pInvalidator>
+	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>sensor_bit_depthReg</pInvalidator>
+	  <pInvalidator>shutter_typeReg</pInvalidator>
+	  <pInvalidator>imgdataformatReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
+	  <pInvalidator>sensor_feature_selectorReg</pInvalidator>
+	  <pInvalidator>sensor_feature_valueReg</pInvalidator>
     </IntReg>
     <IntReg Name="decimation_selectorReg">
       <xiApiPar>decimation_selector</xiApiPar>
@@ -1865,6 +2832,9 @@
       <pInvalidator>decimation_horizontalReg</pInvalidator>
 	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
 	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="decimation_verticalMinReg">
       <xiApiPar>decimation_vertical:min</xiApiPar>
@@ -1875,6 +2845,7 @@
       <pInvalidator>decimation_selectorReg</pInvalidator>
       <pInvalidator>binning_verticalReg</pInvalidator>
 	  <pInvalidator>hdrReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="decimation_horizontalReg">
       <xiApiPar>decimation_horizontal</xiApiPar>
@@ -1887,6 +2858,9 @@
       <pInvalidator>decimation_horizontalReg</pInvalidator>
 	  <pInvalidator>decimation_vertical_patternReg</pInvalidator>
 	  <pInvalidator>decimation_horizontal_patternReg</pInvalidator>
+	  <pInvalidator>downsamplingReg</pInvalidator>
+	  <pInvalidator>downsampling_typeReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="decimation_horizontalMinReg">
       <xiApiPar>decimation_horizontal:min</xiApiPar>
@@ -1896,6 +2870,7 @@
       <xiApiPar>decimation_horizontal:max</xiApiPar>
       <pInvalidator>decimation_selectorReg</pInvalidator>
       <pInvalidator>binning_horizontalReg</pInvalidator>
+	  <pInvalidator>DualADCModeReg</pInvalidator>
     </IntReg>
     <IntReg Name="binning_vertical_modeReg">
       <xiApiPar>binning_vertical_mode</xiApiPar>
@@ -1942,6 +2917,9 @@
 		<IntReg Name="region_selectorIncReg">
 			<xiApiPar>region_selector:inc</xiApiPar>
 		</IntReg>
+		<IntReg Name="ImageAreaReg">
+			<xiApiPar>image_area</xiApiPar>
+		</IntReg>
 		<BooleanReg Name="region_modeReg">
 			<xiApiPar>region_mode</xiApiPar>
 			<pInvalidator>region_selectorReg</pInvalidator>
@@ -1953,12 +2931,25 @@
 		</IntReg>
 		<FloatReg Name="framerateReg">
 			<xiApiPar>framerate</xiApiPar>
-			<pInvalidator>acq_timing_modeReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>exposureReg</pInvalidator>
+			<pInvalidator>acq_timing_modeReg</pInvalidator>
 			<pInvalidator>limit_bandwidthReg</pInvalidator>
 			<pInvalidator>limit_bandwidth_modeReg</pInvalidator>
+			<pInvalidator>downsampling_typeReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>widthReg</pInvalidator>
 			<pInvalidator>heightReg</pInvalidator>
+			<pInvalidator>output_bit_packingReg</pInvalidator>
+			<pInvalidator>output_bit_packing_typeReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>output_bit_depthReg</pInvalidator>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
 		</FloatReg>
 		<FloatReg Name="framerateMinReg">
 			<xiApiPar>framerate:min</xiApiPar>
@@ -2039,6 +3030,18 @@
 		<IntReg Name="limit_bandwidthIncReg">
 			<xiApiPar>limit_bandwidth:inc</xiApiPar>
 		</IntReg>
+		<IntReg Name="buffers_queue_sizeReg">
+			<xiApiPar>buffers_queue_size</xiApiPar>
+		</IntReg>
+		<IntReg Name="buffers_queue_sizeMinReg">
+			<xiApiPar>buffers_queue_size:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="buffers_queue_sizeMaxReg">
+			<xiApiPar>buffers_queue_size:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="buffers_queue_sizeIncReg">
+			<xiApiPar>buffers_queue_size:inc</xiApiPar>
+		</IntReg>
 		<IntReg Name="sensor_clock_freq_indexReg">
 			<xiApiPar>sensor_clock_freq_index</xiApiPar>
 		</IntReg>
@@ -2050,34 +3053,64 @@
 			<xiApiPar>sensor_bit_depth</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>shutter_typeReg</pInvalidator>
+			<pInvalidator>UserSetLoadReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="sensor_bit_depthMinReg">
 			<xiApiPar>sensor_bit_depth:min</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>shutter_typeReg</pInvalidator>
+			<pInvalidator>UserSetLoadReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="sensor_bit_depthMaxReg">
 			<xiApiPar>sensor_bit_depth:max</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>shutter_typeReg</pInvalidator>
+			<pInvalidator>UserSetLoadReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>DualADCModeReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="sensor_bit_depthIncReg">
 			<xiApiPar>sensor_bit_depth:inc</xiApiPar>
+			<pInvalidator>DualADCModeReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="output_bit_depthReg">
 			<xiApiPar>output_bit_depth</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>shutter_typeReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="output_bit_depthMinReg">
 			<xiApiPar>output_bit_depth:min</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="output_bit_depthMaxReg">
 			<xiApiPar>output_bit_depth:max</xiApiPar>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="output_bit_depthIncReg">
 			<xiApiPar>output_bit_depth:inc</xiApiPar>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="image_data_bit_depthReg">
 			<xiApiPar>image_data_bit_depth</xiApiPar>
@@ -2111,6 +3144,7 @@
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>output_bit_depthReg</pInvalidator>
 			<pInvalidator>sensor_bit_depthReg</pInvalidator>
+			<pInvalidator>shutter_typeReg</pInvalidator>
 		</BooleanReg>
 		<IntReg Name="bpc_list_selectorReg">
 			<xiApiPar>bpc_list_selector</xiApiPar>
@@ -2130,6 +3164,12 @@
 		</BooleanReg>
 		<BooleanReg Name="row_fpn_correctionReg">
 			<xiApiPar>row_fpn_correction</xiApiPar>
+		</BooleanReg>
+		<BooleanReg Name="column_black_offset_correctionReg">
+			<xiApiPar>column_black_offset_correction</xiApiPar>
+		</BooleanReg>
+		<BooleanReg Name="row_black_offset_correctionReg">
+			<xiApiPar>row_black_offset_correction</xiApiPar>
 		</BooleanReg>
 		<BooleanReg Name="auto_wbReg">
 			<xiApiPar>auto_wb</xiApiPar>
@@ -2185,21 +3225,13 @@
 		<FloatReg Name="target_tempMaxReg">
 			<xiApiPar>target_temp:max</xiApiPar>
 		</FloatReg>
-		<FloatReg Name="chip_tempReg">
-			<xiApiPar>chip_temp</xiApiPar>
+		<IntReg Name="temp_selectorReg">
+			<xiApiPar>temp_selector</xiApiPar>
+		</IntReg>
+		<FloatReg Name="tempReg">
+			<xiApiPar>temp</xiApiPar>
 			<PollingTime>1000</PollingTime>
-		</FloatReg>
-		<FloatReg Name="hous_tempReg">
-			<xiApiPar>hous_temp</xiApiPar>
-			<PollingTime>1000</PollingTime>
-		</FloatReg>
-		<FloatReg Name="hous_back_side_tempReg">
-			<xiApiPar>hous_back_side_temp</xiApiPar>
-			<PollingTime>1000</PollingTime>
-		</FloatReg>
-		<FloatReg Name="sensor_board_tempReg">
-			<xiApiPar>sensor_board_temp</xiApiPar>
-			<PollingTime>1000</PollingTime>
+			<pInvalidator>temp_selectorReg</pInvalidator>
 		</FloatReg>
 		<IntReg Name="xiapi_ColorManagementModeReg">
 			<xiApiPar>cms</xiApiPar>
@@ -2416,25 +3448,34 @@
 			<xiApiPar>offsetX</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetXMinReg">
 			<xiApiPar>offsetX:min</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetXMaxReg">
 			<xiApiPar>offsetX:max</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>widthReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetXIncReg">
@@ -2444,48 +3485,65 @@
 			<xiApiPar>offsetY</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetYMinReg">
 			<xiApiPar>offsetY:min</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetYMaxReg">
 			<xiApiPar>offsetY:max</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>heightReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="offsetYIncReg">
 			<xiApiPar>offsetY:inc</xiApiPar>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="widthReg">
 			<xiApiPar>width</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="widthMinReg">
 			<xiApiPar>width:min</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>output_bit_depthReg</pInvalidator>
 			<pInvalidator>output_bit_packingReg</pInvalidator>
 			<pInvalidator>heightReg</pInvalidator>
@@ -2494,9 +3552,12 @@
 			<xiApiPar>width:max</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_horizontalReg</pInvalidator>
-      <pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>offsetXReg</pInvalidator>
 			<pInvalidator>heightReg</pInvalidator>
 		</IntReg>
@@ -2506,25 +3567,37 @@
 			<pInvalidator>output_bit_packingReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
 			<pInvalidator>heightReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>downsamplingReg</pInvalidator>
+			<pInvalidator>sensor_bit_depthReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="heightReg">
 			<xiApiPar>height</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
 		</IntReg>
 		<IntReg Name="heightMinReg">
 			<xiApiPar>height:min</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>output_bit_depthReg</pInvalidator>
 			<pInvalidator>output_bit_packingReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>widthReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
 		</IntReg>
@@ -2532,9 +3605,12 @@
 			<xiApiPar>height:max</xiApiPar>
 			<pInvalidator>downsamplingReg</pInvalidator>
 			<pInvalidator>downsampling_typeReg</pInvalidator>
-      <pInvalidator>binning_verticalReg</pInvalidator>
-      <pInvalidator>decimation_verticalReg</pInvalidator>
+			<pInvalidator>binning_horizontalReg</pInvalidator>
+			<pInvalidator>decimation_horizontalReg</pInvalidator>
+			<pInvalidator>binning_verticalReg</pInvalidator>
+			<pInvalidator>decimation_verticalReg</pInvalidator>
 			<pInvalidator>imgdataformatReg</pInvalidator>
+			<pInvalidator>ImageAreaReg</pInvalidator>
 			<pInvalidator>widthReg</pInvalidator>
 			<pInvalidator>offsetYReg</pInvalidator>
 			<pInvalidator>region_selectorReg</pInvalidator>
@@ -2759,5 +3835,96 @@
 		<IntReg Name="VerticalFlipReg">
 		  <xiApiPar>vertical_flip</xiApiPar>
 		</IntReg>
+		<IntReg Name="InterlineExposureModeReg">
+		  <xiApiPar>interline_exposure_mode</xiApiPar>
+		</IntReg>
+		<IntReg Name="TofReadoutModeReg">
+			<xiApiPar>tof_readout_mode</xiApiPar>
+		</IntReg>
+		<FloatReg Name="tof_modulation_frequencyReg">
+			<xiApiPar>tof_modulation_frequency</xiApiPar>
+		</FloatReg>
+		<FloatReg Name="tof_modulation_frequencyMinReg">
+			<xiApiPar>tof_modulation_frequency:min</xiApiPar>
+		</FloatReg>
+		<FloatReg Name="tof_modulation_frequencyMaxReg">
+			<xiApiPar>tof_modulation_frequency:max</xiApiPar>
+		</FloatReg>
+		<BooleanReg Name="tof_multiple_phases_in_bufferReg">
+			<xiApiPar>tof_multiple_phases_in_buffer</xiApiPar>
+		</BooleanReg>
+		<IntReg Name="tof_phases_countReg">
+			<xiApiPar>tof_phases_count</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phases_countMinReg">
+			<xiApiPar>tof_phases_count:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phases_countMaxReg">
+			<xiApiPar>tof_phases_count:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phases_countIncReg">
+			<xiApiPar>tof_phases_count:inc</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phase_selectorReg">
+			<xiApiPar>tof_phase_selector</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phase_selectorMinReg">
+			<xiApiPar>tof_phase_selector:min</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phase_selectorMaxReg">
+			<xiApiPar>tof_phase_selector:max</xiApiPar>
+		</IntReg>
+		<IntReg Name="tof_phase_selectorIncReg">
+			<xiApiPar>tof_phase_selector:inc</xiApiPar>
+		</IntReg>
+		<FloatReg Name="tof_phase_angleReg">
+			<xiApiPar>tof_phase_angle</xiApiPar>
+			<pInvalidator>tof_phase_selectorReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="tof_phase_angleMinReg">
+			<xiApiPar>tof_phase_angle:min</xiApiPar>
+		</FloatReg>
+		<FloatReg Name="tof_phase_angleMaxReg">
+			<xiApiPar>tof_phase_angle:max</xiApiPar>
+		</FloatReg>
+		<FloatReg Name="tof_phase_exposure_timeReg">
+			<xiApiPar>tof_phase_exposure_time</xiApiPar>
+			<pInvalidator>tof_phase_selectorReg</pInvalidator>
+			<pInvalidator>tof_modulation_frequencyReg</pInvalidator>
+			<pInvalidator>exposureReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="tof_phase_exposure_timeMinReg">
+			<xiApiPar>tof_phase_exposure_time:min</xiApiPar>
+			<pInvalidator>tof_modulation_frequencyReg</pInvalidator>
+		</FloatReg>
+		<FloatReg Name="tof_phase_exposure_timeMaxReg">
+			<xiApiPar>tof_phase_exposure_time:max</xiApiPar>
+		</FloatReg>
+		<IntReg Name="sensor_feature_selectorReg">
+			<xiApiPar>sensor_feature_selector</xiApiPar>
+		</IntReg>
+		<IntReg Name="sensor_feature_valueReg">
+			<xiApiPar>sensor_feature_value</xiApiPar>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+			<pInvalidator>sensor_feature_valueReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="sensor_feature_valueMinReg">
+			<xiApiPar>sensor_feature_value:min</xiApiPar>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="sensor_feature_valueMaxReg">
+			<xiApiPar>sensor_feature_value:max</xiApiPar>
+			<pInvalidator>sensor_feature_selectorReg</pInvalidator>
+		</IntReg>
+		<IntReg Name="UserSetSelectorReg">
+			<xiApiPar>user_set_selector</xiApiPar>
+		</IntReg>
+		<IntReg Name="UserSetDefaultReg">
+			<xiApiPar>user_set_default</xiApiPar>
+		</IntReg>
+		<IntReg Name="UserSetLoadReg">
+			<xiApiPar>user_set_load</xiApiPar>
+		</IntReg>
 	</Group>
 </RegisterDescription>
+

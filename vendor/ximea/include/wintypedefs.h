@@ -80,6 +80,7 @@ typedef uint8_t				UINT8;
 typedef uint16_t			UINT16;
 typedef uint32_t			UINT32;
 typedef uint64_t			UINT64;
+typedef int8_t				INT8;
 typedef int32_t				INT32;
 typedef int64_t				INT64;
 typedef unsigned int*		PUINT;
@@ -95,42 +96,10 @@ typedef LPCSTR				LPCTSTR;
 typedef LPSTR				LPTSTR;
 typedef unsigned __int3264	ULONG_PTR;
 
-typedef struct _GUID {
-	DWORD Data1;
-	WORD  Data2;
-	WORD  Data3;
-	BYTE  Data4[8];
-} GUID;
-typedef union _LARGE_INTEGER {
-	struct {
-		DWORD LowPart;
-		LONG  HighPart;
-	} ;
-	struct {
-		DWORD LowPart;
-		LONG  HighPart;
-	} u;
-	LONGLONG QuadPart;
-} LARGE_INTEGER, *PLARGE_INTEGER;
-typedef union _ULARGE_INTEGER {
-	struct {
-		DWORD LowPart;
-		DWORD HighPart;
-	} ;
-	struct {
-		DWORD LowPart;
-		DWORD HighPart;
-	} u;
-	ULONGLONG QuadPart;
-} ULARGE_INTEGER, *PULARGE_INTEGER;
 typedef struct tagSIZE
 {
 	LONG        cx;
 	LONG        cy;
 } SIZE, *PSIZE, *LPSIZE;
-typedef struct tagPOINT {
-	LONG x;
-	LONG y;
-} POINT, *PPOINT;
 
 #endif // __WINTYPEDEFS_H

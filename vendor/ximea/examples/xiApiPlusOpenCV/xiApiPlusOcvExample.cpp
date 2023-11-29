@@ -1,6 +1,6 @@
 // xiApiPlusOcvExample.cpp : program opens first camera, captures and displays 40 images
 
-#include <stdio.h>
+#include <iostream>
 #include "xiApiPlusOcv.hpp"
 
 using namespace cv;
@@ -13,45 +13,92 @@ int main(int argc, char* argv[])
 		xiAPIplusCameraOcv cam;
 
 		// Retrieving a handle to the camera device
-		printf("Opening first camera...\n");
+		cout << "Opening first camera..." << endl;
 		cam.OpenFirst();
 		
 		// Set exposure
 		cam.SetExposureTime(10000); //10000 us = 10 ms
 		// Note: The default parameters of each camera might be different in different API versions
 		
-		printf("Starting acquisition...\n");
+		cout << "Starting acquisition..." << endl;
 		cam.StartAcquisition();
-		
-		printf("First pixel value \n");
+
+		cout << "First pixel value:" << endl;
 		XI_IMG_FORMAT format = cam.GetImageDataFormat();
-		#define EXPECTED_IMAGES 40
+		#define EXPECTED_IMAGES 150
 		for (int images=0;images < EXPECTED_IMAGES;images++)
 		{
 			Mat cv_mat_image = cam.GetNextImageOcvMat();
-			if (format == XI_RAW16 || format == XI_MONO16) 
-				normalize(cv_mat_image, cv_mat_image, 0, 65536, NORM_MINMAX, -1, Mat()); // 0 - 65536, 16 bit unsigned integer range
-			cv::imshow("Image from camera",cv_mat_image);
-			cvWaitKey(20);
-			printf("\t%d\n",cv_mat_image.at<unsigned char>(0,0));
+	
+			// display image and print 1st px value
+			switch (format)
+			{
+				case XI_MONO16:
+				case XI_RAW16:
+				case XI_RAW16X2:
+				case XI_RAW16X4:
+				case XI_RGB16_PLANAR:
+				{
+					cout << cv_mat_image.at<ushort>(0, 0) << endl;
+					// normalize to 16-bit for proper view
+					Mat norm_cv_mat_image = cv_mat_image.clone();
+					normalize(cv_mat_image, norm_cv_mat_image, 0, 65536, NORM_MINMAX, -1, Mat()); // 0 - 65536, 16 bit unsigned integer range
+					imshow("Image from camera", norm_cv_mat_image);
+				}
+				break;
+				case XI_RGB24:
+				{
+					cout << cv_mat_image.at<Vec3b>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+				break;
+				case XI_RGB32:
+				{
+					cout << cv_mat_image.at<Vec4b>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+				break;
+				case XI_RGB48:
+				{
+					cout << cv_mat_image.at<Vec3w>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+				break;
+				case XI_RGB64:
+				{
+					cout << cv_mat_image.at<Vec4w>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+				break;
+				case XI_RAW32FLOAT:
+				{
+					cout << cv_mat_image.at<float>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+				break;
+				default:
+				{
+					cout << +cv_mat_image.at<uchar>(0, 0) << endl;
+					imshow("Image from camera", cv_mat_image);
+				}
+			}
+			waitKey(2);
 		}
 		
 		cam.StopAcquisition();
 		cam.Close();
-		printf("Done\n");
-		
-		cvWaitKey(500);
+		cout << "Done" << endl;
+		waitKey(1000);
 	}
 	catch(xiAPIplus_Exception& exp)
 	{
-		printf("Error:\n");
+		cout << "Error:" << endl;
 		exp.PrintError();
 #ifdef WIN32
-		Sleep(2000);
+		Sleep(3000);
 #endif
-		cvWaitKey(2000);
+		waitKey(3000);
 		return -1;
 	}
 	return 0;
 }
-
