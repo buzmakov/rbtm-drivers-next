@@ -1,8 +1,29 @@
 version: '3.7'
 services:
-  drivers_new:
+  drivers_fw:
     build: .
-    container_name: rbtm-drivers-new
+    container_name: rbtm-drivers-fw
+    restart: unless-stopped
+    ports:
+     - "5001:5001"
+    volumes:
+      - "/dev/ximc/0000037A:/dev/ximc/0000037A"
+      - "/dev/ximc/00000271:/dev/ximc/00000271"
+      - "./logs:/var/log/supervisor"
+    devices:
+      - "/dev/ttyACM2:/dev/ttyACM2"
+      - "/dev/ttyACM1:/dev/ttyACM1"
+      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+      - "/dev/fw0:/dev/fw0"
+      - "/dev/fw1:/dev/fw1"
+      #- "/dev/bus/usb/004/003:/dev/bus/usb/004/003"
+    environment:
+      - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
+
+  drivers_usb:
+    build: .
+    container_name: rbtm-drivers-usb
     restart: unless-stopped
     ports:
      - "5001:5001"
@@ -20,3 +41,4 @@ services:
       - "/dev/bus/usb/004/003:/dev/bus/usb/004/003"
     environment:
       - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
+
