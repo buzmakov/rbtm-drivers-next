@@ -35,8 +35,8 @@ class Xi_error(Exception):
     Camera error. Specified by return codes from camera c library.
     '''
     def __init__(self, status):
+        self.status = status
         if status in ERROR_CODES:
-            self.status = status
             self.descr = ERROR_CODES[status]
         else:
             self.descr = 'Unknown error'
@@ -158,10 +158,18 @@ class Image(XI_IMG):
             return 1
         elif self.frm == XI_IMG_FORMAT["XI_RAW8"].value:
             return 1
+        elif self.frm == XI_IMG_FORMAT["XI_RAW8X2"].value:
+            return 2
+        elif self.frm == XI_IMG_FORMAT["XI_RAW8X4"].value:
+            return 4
         elif self.frm == XI_IMG_FORMAT["XI_MONO16"].value:
             return 2
         elif self.frm == XI_IMG_FORMAT["XI_RAW16"].value:
             return 2
+        elif self.frm == XI_IMG_FORMAT["XI_RAW16X2"].value:
+            return 4
+        elif self.frm == XI_IMG_FORMAT["XI_RAW16X4"].value:
+            return 8
         elif self.frm == XI_IMG_FORMAT["XI_RGB24"].value:
             return 3
         elif self.frm == XI_IMG_FORMAT["XI_RGB32"].value:
@@ -302,7 +310,7 @@ class Camera(object):
     def get_image(self, image, timeout=5000):
         '''
         Pass data from memory to Image instance image.
-        Timeout is specified in microseconds.
+        Timeout is specified in miliseconds.
 
         NOTE: Call this function before closing the camera. After the camera
         is closed, the memory is deallocated and it is impossible to retrieve
@@ -407,10 +415,13 @@ class Camera(object):
         ''' 
         prm = create_string_buffer(param) #only python2.x
 
-        if not param.split(':')[0] in VAL_TYPE:
+        parameter_name = param.split(':')[0]
+
+        # Raise an error if the parameter name does not exist (isn't found in the VAL_TYPE dictionary)
+        if not parameter_name in VAL_TYPE:
             raise RuntimeError('invalid parameter')
 
-        val_type = VAL_TYPE[param.split(':')[0]]
+        val_type = VAL_TYPE[parameter_name]
 
         if val_type == 'xiTypeString':
             val_len = DWORD(buffer_size)
@@ -421,6 +432,9 @@ class Camera(object):
              val_type == 'xiTypeCommand' :
             val_len = DWORD(4)
             val = pointer(c_int())
+        elif val_type == 'xiTypeInteger64' :
+            val_len = DWORD(8)
+            val = pointer(c_ulonglong())    
         elif val_type == 'xiTypeFloat':
             val_len = DWORD(4)
             val = pointer(FLOAT())
@@ -439,11 +453,14 @@ class Camera(object):
         if val_type == 'xiTypeString':
             return val.value[:val_len.value]                 
 
-        if val_type == 'xiTypeInteger' or val_type == 'xiTypeFloat':
+        if val_type == 'xiTypeInteger' or val_type == 'xiTypeFloat' or val_type =='xiTypeInteger64':
             return val.contents.value
 
         if val_type == 'xiTypeEnum':
-            return _key_by_value(ASSOC_ENUM[param], val.contents) 
+            if ":" in param and param.split(":")[1] == "inc":
+                return val.contents.value
+            else:
+                return _key_by_value(ASSOC_ENUM[parameter_name], val.contents) 
 
         if val_type == 'xiTypeBoolean':
             return bool(val.contents.value)
@@ -489,6 +506,36 @@ class Camera(object):
         Exposure time in microsecondsXI_PRM_EXPOSURE
         '''
         self.set_param('exposure:direct_update', exposure)
+
+    def get_exposure_time_selector(self):
+        '''
+        Selector for Exposure parameterXI_PRM_EXPOSURE_TIME_SELECTOR
+        '''
+        return self.get_param('exposure_time_selector')
+
+    def get_exposure_time_selector_maximum(self):
+        '''
+        Selector for Exposure parameterXI_PRM_EXPOSURE_TIME_SELECTOR
+        '''
+        return self.get_param('exposure_time_selector:max')
+
+    def get_exposure_time_selector_minimum(self):
+        '''
+        Selector for Exposure parameterXI_PRM_EXPOSURE_TIME_SELECTOR
+        '''
+        return self.get_param('exposure_time_selector:min')
+
+    def get_exposure_time_selector_increment(self):
+        '''
+        Selector for Exposure parameterXI_PRM_EXPOSURE_TIME_SELECTOR
+        '''
+        return self.get_param('exposure_time_selector:inc')
+
+    def set_exposure_time_selector(self, exposure_time_selector):
+        '''
+        Selector for Exposure parameterXI_PRM_EXPOSURE_TIME_SELECTOR
+        '''
+        self.set_param('exposure_time_selector', exposure_time_selector)
 
     def get_exposure_burst_count(self):
         '''
@@ -648,31 +695,31 @@ class Camera(object):
 
     def get_test_pattern_generator_selector(self):
         '''
-        Selects which test pattern generator is controlled by the TestPattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
+        Selects which test pattern generator is controlled by the test pattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
         '''
         return self.get_param('test_pattern_generator_selector')
 
     def get_test_pattern_generator_selector_maximum(self):
         '''
-        Selects which test pattern generator is controlled by the TestPattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
+        Selects which test pattern generator is controlled by the test pattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
         '''
         return self.get_param('test_pattern_generator_selector:max')
 
     def get_test_pattern_generator_selector_minimum(self):
         '''
-        Selects which test pattern generator is controlled by the TestPattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
+        Selects which test pattern generator is controlled by the test pattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
         '''
         return self.get_param('test_pattern_generator_selector:min')
 
     def get_test_pattern_generator_selector_increment(self):
         '''
-        Selects which test pattern generator is controlled by the TestPattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
+        Selects which test pattern generator is controlled by the test pattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
         '''
         return self.get_param('test_pattern_generator_selector:inc')
 
     def set_test_pattern_generator_selector(self, test_pattern_generator_selector):
         '''
-        Selects which test pattern generator is controlled by the TestPattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
+        Selects which test pattern generator is controlled by the test pattern feature.XI_PRM_TEST_PATTERN_GENERATOR_SELECTOR
         '''
         self.set_param('test_pattern_generator_selector', test_pattern_generator_selector)
 
@@ -735,6 +782,30 @@ class Camera(object):
         Output data format.XI_PRM_IMAGE_DATA_FORMAT
         '''
         self.set_param('imgdataformat', imgdataformat)
+
+    def get_image_data_sign(self):
+        '''
+        Signedness of image data.XI_PRM_IMAGE_DATA_SIGN
+        '''
+        return self.get_param('image_data_sign')
+
+    def get_image_data_sign_maximum(self):
+        '''
+        Signedness of image data.XI_PRM_IMAGE_DATA_SIGN
+        '''
+        return self.get_param('image_data_sign:max')
+
+    def get_image_data_sign_minimum(self):
+        '''
+        Signedness of image data.XI_PRM_IMAGE_DATA_SIGN
+        '''
+        return self.get_param('image_data_sign:min')
+
+    def get_image_data_sign_increment(self):
+        '''
+        Signedness of image data.XI_PRM_IMAGE_DATA_SIGN
+        '''
+        return self.get_param('image_data_sign:inc')
 
     def get_shutter_type(self):
         '''
@@ -1468,6 +1539,36 @@ class Camera(object):
         '''
         self.set_param('vertical_flip', False)
 
+    def get_interline_exposure_mode(self):
+        '''
+        Selector for Exposure parameterXI_PRM_INTERLINE_EXPOSURE_MODE
+        '''
+        return self.get_param('interline_exposure_mode')
+
+    def get_interline_exposure_mode_maximum(self):
+        '''
+        Selector for Exposure parameterXI_PRM_INTERLINE_EXPOSURE_MODE
+        '''
+        return self.get_param('interline_exposure_mode:max')
+
+    def get_interline_exposure_mode_minimum(self):
+        '''
+        Selector for Exposure parameterXI_PRM_INTERLINE_EXPOSURE_MODE
+        '''
+        return self.get_param('interline_exposure_mode:min')
+
+    def get_interline_exposure_mode_increment(self):
+        '''
+        Selector for Exposure parameterXI_PRM_INTERLINE_EXPOSURE_MODE
+        '''
+        return self.get_param('interline_exposure_mode:inc')
+
+    def set_interline_exposure_mode(self, interline_exposure_mode):
+        '''
+        Selector for Exposure parameterXI_PRM_INTERLINE_EXPOSURE_MODE
+        '''
+        self.set_param('interline_exposure_mode', interline_exposure_mode)
+
     def is_ffc(self):
         '''
         Image flat field correctionXI_PRM_FFC
@@ -1509,6 +1610,210 @@ class Camera(object):
         Set name of file to be applied for FFC processor.XI_PRM_FFC_DARK_FIELD_FILE_NAME
         '''
         self.set_param('ffc_dark_field_file_name', ffc_dark_field_file_name)
+
+    def get_tof_readout_mode(self):
+        '''
+        Sets ToF Readout ModeXI_PRM_TOF_READOUT_MODE
+        '''
+        return self.get_param('tof_readout_mode')
+
+    def get_tof_readout_mode_maximum(self):
+        '''
+        Sets ToF Readout ModeXI_PRM_TOF_READOUT_MODE
+        '''
+        return self.get_param('tof_readout_mode:max')
+
+    def get_tof_readout_mode_minimum(self):
+        '''
+        Sets ToF Readout ModeXI_PRM_TOF_READOUT_MODE
+        '''
+        return self.get_param('tof_readout_mode:min')
+
+    def get_tof_readout_mode_increment(self):
+        '''
+        Sets ToF Readout ModeXI_PRM_TOF_READOUT_MODE
+        '''
+        return self.get_param('tof_readout_mode:inc')
+
+    def set_tof_readout_mode(self, tof_readout_mode):
+        '''
+        Sets ToF Readout ModeXI_PRM_TOF_READOUT_MODE
+        '''
+        self.set_param('tof_readout_mode', tof_readout_mode)
+
+    def get_tof_modulation_frequency(self):
+        '''
+        Sets ToF Modulation Frequency in MHzXI_PRM_TOF_MODULATION_FREQUENCY
+        '''
+        return self.get_param('tof_modulation_frequency')
+
+    def get_tof_modulation_frequency_maximum(self):
+        '''
+        Sets ToF Modulation Frequency in MHzXI_PRM_TOF_MODULATION_FREQUENCY
+        '''
+        return self.get_param('tof_modulation_frequency:max')
+
+    def get_tof_modulation_frequency_minimum(self):
+        '''
+        Sets ToF Modulation Frequency in MHzXI_PRM_TOF_MODULATION_FREQUENCY
+        '''
+        return self.get_param('tof_modulation_frequency:min')
+
+    def get_tof_modulation_frequency_increment(self):
+        '''
+        Sets ToF Modulation Frequency in MHzXI_PRM_TOF_MODULATION_FREQUENCY
+        '''
+        return self.get_param('tof_modulation_frequency:inc')
+
+    def set_tof_modulation_frequency(self, tof_modulation_frequency):
+        '''
+        Sets ToF Modulation Frequency in MHzXI_PRM_TOF_MODULATION_FREQUENCY
+        '''
+        self.set_param('tof_modulation_frequency', tof_modulation_frequency)
+
+    def get_tof_multiple_phases_in_buffer(self):
+        '''
+        is multiple ToF phases concatenated in bufferXI_PRM_TOF_MULTIPLE_PHASES_IN_BUFFER
+        '''
+        return self.get_param('tof_multiple_phases_in_buffer')
+
+    def get_tof_multiple_phases_in_buffer_maximum(self):
+        '''
+        is multiple ToF phases concatenated in bufferXI_PRM_TOF_MULTIPLE_PHASES_IN_BUFFER
+        '''
+        return self.get_param('tof_multiple_phases_in_buffer:max')
+
+    def get_tof_multiple_phases_in_buffer_minimum(self):
+        '''
+        is multiple ToF phases concatenated in bufferXI_PRM_TOF_MULTIPLE_PHASES_IN_BUFFER
+        '''
+        return self.get_param('tof_multiple_phases_in_buffer:min')
+
+    def get_tof_multiple_phases_in_buffer_increment(self):
+        '''
+        is multiple ToF phases concatenated in bufferXI_PRM_TOF_MULTIPLE_PHASES_IN_BUFFER
+        '''
+        return self.get_param('tof_multiple_phases_in_buffer:inc')
+
+    def get_tof_phases_count(self):
+        '''
+        Sets the number of tof phases. E.g. 4 for four phases.XI_PRM_TOF_PHASES_COUNT
+        '''
+        return self.get_param('tof_phases_count')
+
+    def get_tof_phases_count_maximum(self):
+        '''
+        Sets the number of tof phases. E.g. 4 for four phases.XI_PRM_TOF_PHASES_COUNT
+        '''
+        return self.get_param('tof_phases_count:max')
+
+    def get_tof_phases_count_minimum(self):
+        '''
+        Sets the number of tof phases. E.g. 4 for four phases.XI_PRM_TOF_PHASES_COUNT
+        '''
+        return self.get_param('tof_phases_count:min')
+
+    def get_tof_phases_count_increment(self):
+        '''
+        Sets the number of tof phases. E.g. 4 for four phases.XI_PRM_TOF_PHASES_COUNT
+        '''
+        return self.get_param('tof_phases_count:inc')
+
+    def set_tof_phases_count(self, tof_phases_count):
+        '''
+        Sets the number of tof phases. E.g. 4 for four phases.XI_PRM_TOF_PHASES_COUNT
+        '''
+        self.set_param('tof_phases_count', tof_phases_count)
+
+    def get_tof_phase_angle(self):
+        '''
+        Sets Illumination angle for selected ToF phaseXI_PRM_TOF_PHASE_ANGLE
+        '''
+        return self.get_param('tof_phase_angle')
+
+    def get_tof_phase_angle_maximum(self):
+        '''
+        Sets Illumination angle for selected ToF phaseXI_PRM_TOF_PHASE_ANGLE
+        '''
+        return self.get_param('tof_phase_angle:max')
+
+    def get_tof_phase_angle_minimum(self):
+        '''
+        Sets Illumination angle for selected ToF phaseXI_PRM_TOF_PHASE_ANGLE
+        '''
+        return self.get_param('tof_phase_angle:min')
+
+    def get_tof_phase_angle_increment(self):
+        '''
+        Sets Illumination angle for selected ToF phaseXI_PRM_TOF_PHASE_ANGLE
+        '''
+        return self.get_param('tof_phase_angle:inc')
+
+    def set_tof_phase_angle(self, tof_phase_angle):
+        '''
+        Sets Illumination angle for selected ToF phaseXI_PRM_TOF_PHASE_ANGLE
+        '''
+        self.set_param('tof_phase_angle', tof_phase_angle)
+
+    def get_tof_phase_exposure_time(self):
+        '''
+        Sets Exposure time for selected ToF phase in microseconds.XI_PRM_TOF_PHASE_EXPOSURE_TIME
+        '''
+        return self.get_param('tof_phase_exposure_time')
+
+    def get_tof_phase_exposure_time_maximum(self):
+        '''
+        Sets Exposure time for selected ToF phase in microseconds.XI_PRM_TOF_PHASE_EXPOSURE_TIME
+        '''
+        return self.get_param('tof_phase_exposure_time:max')
+
+    def get_tof_phase_exposure_time_minimum(self):
+        '''
+        Sets Exposure time for selected ToF phase in microseconds.XI_PRM_TOF_PHASE_EXPOSURE_TIME
+        '''
+        return self.get_param('tof_phase_exposure_time:min')
+
+    def get_tof_phase_exposure_time_increment(self):
+        '''
+        Sets Exposure time for selected ToF phase in microseconds.XI_PRM_TOF_PHASE_EXPOSURE_TIME
+        '''
+        return self.get_param('tof_phase_exposure_time:inc')
+
+    def set_tof_phase_exposure_time(self, tof_phase_exposure_time):
+        '''
+        Sets Exposure time for selected ToF phase in microseconds.XI_PRM_TOF_PHASE_EXPOSURE_TIME
+        '''
+        self.set_param('tof_phase_exposure_time', tof_phase_exposure_time)
+
+    def get_tof_phase_selector(self):
+        '''
+        Selects tof phaseXI_PRM_TOF_PHASE_SELECTOR
+        '''
+        return self.get_param('tof_phase_selector')
+
+    def get_tof_phase_selector_maximum(self):
+        '''
+        Selects tof phaseXI_PRM_TOF_PHASE_SELECTOR
+        '''
+        return self.get_param('tof_phase_selector:max')
+
+    def get_tof_phase_selector_minimum(self):
+        '''
+        Selects tof phaseXI_PRM_TOF_PHASE_SELECTOR
+        '''
+        return self.get_param('tof_phase_selector:min')
+
+    def get_tof_phase_selector_increment(self):
+        '''
+        Selects tof phaseXI_PRM_TOF_PHASE_SELECTOR
+        '''
+        return self.get_param('tof_phase_selector:inc')
+
+    def set_tof_phase_selector(self, tof_phase_selector):
+        '''
+        Selects tof phaseXI_PRM_TOF_PHASE_SELECTOR
+        '''
+        self.set_param('tof_phase_selector', tof_phase_selector)
 
 #-------------------------------------------------------------------------------------------------------------------
 # ---- Parameter Group: Image Format
@@ -1604,6 +1909,36 @@ class Camera(object):
         '''
         self.set_param('binning_vertical', binning_vertical)
 
+    def get_binning_vertical_float(self):
+        '''
+        Vertical Binning Float - number of vertical photo-sensitive cells to combine together.XI_PRM_BINNING_VERTICAL_FLOAT
+        '''
+        return self.get_param('binning_vertical_float')
+
+    def get_binning_vertical_float_maximum(self):
+        '''
+        Vertical Binning Float - number of vertical photo-sensitive cells to combine together.XI_PRM_BINNING_VERTICAL_FLOAT
+        '''
+        return self.get_param('binning_vertical_float:max')
+
+    def get_binning_vertical_float_minimum(self):
+        '''
+        Vertical Binning Float - number of vertical photo-sensitive cells to combine together.XI_PRM_BINNING_VERTICAL_FLOAT
+        '''
+        return self.get_param('binning_vertical_float:min')
+
+    def get_binning_vertical_float_increment(self):
+        '''
+        Vertical Binning Float - number of vertical photo-sensitive cells to combine together.XI_PRM_BINNING_VERTICAL_FLOAT
+        '''
+        return self.get_param('binning_vertical_float:inc')
+
+    def set_binning_vertical_float(self, binning_vertical_float):
+        '''
+        Vertical Binning Float - number of vertical photo-sensitive cells to combine together.XI_PRM_BINNING_VERTICAL_FLOAT
+        '''
+        self.set_param('binning_vertical_float', binning_vertical_float)
+
     def get_binning_horizontal_mode(self):
         '''
         Sets the mode to use to combine horizontal pixel together.XI_PRM_BINNING_HORIZONTAL_MODE
@@ -1663,6 +1998,36 @@ class Camera(object):
         Horizontal Binning - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL
         '''
         self.set_param('binning_horizontal', binning_horizontal)
+
+    def get_binning_horizontal_float(self):
+        '''
+        Horizontal Binning Float - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL_FLOAT
+        '''
+        return self.get_param('binning_horizontal_float')
+
+    def get_binning_horizontal_float_maximum(self):
+        '''
+        Horizontal Binning Float - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL_FLOAT
+        '''
+        return self.get_param('binning_horizontal_float:max')
+
+    def get_binning_horizontal_float_minimum(self):
+        '''
+        Horizontal Binning Float - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL_FLOAT
+        '''
+        return self.get_param('binning_horizontal_float:min')
+
+    def get_binning_horizontal_float_increment(self):
+        '''
+        Horizontal Binning Float - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL_FLOAT
+        '''
+        return self.get_param('binning_horizontal_float:inc')
+
+    def set_binning_horizontal_float(self, binning_horizontal_float):
+        '''
+        Horizontal Binning Float - number of horizontal photo-sensitive cells to combine together.XI_PRM_BINNING_HORIZONTAL_FLOAT
+        '''
+        self.set_param('binning_horizontal_float', binning_horizontal_float)
 
     def get_binning_horizontal_pattern(self):
         '''
@@ -2004,31 +2369,31 @@ class Camera(object):
 
     def get_limit_bandwidth(self):
         '''
-        Set/get bandwidth(datarate)(in Megabits)XI_PRM_LIMIT_BANDWIDTH
+        Set/get bandwidth(data rate in Megabits)XI_PRM_LIMIT_BANDWIDTH
         '''
         return self.get_param('limit_bandwidth')
 
     def get_limit_bandwidth_maximum(self):
         '''
-        Set/get bandwidth(datarate)(in Megabits)XI_PRM_LIMIT_BANDWIDTH
+        Set/get bandwidth(data rate in Megabits)XI_PRM_LIMIT_BANDWIDTH
         '''
         return self.get_param('limit_bandwidth:max')
 
     def get_limit_bandwidth_minimum(self):
         '''
-        Set/get bandwidth(datarate)(in Megabits)XI_PRM_LIMIT_BANDWIDTH
+        Set/get bandwidth(data rate in Megabits)XI_PRM_LIMIT_BANDWIDTH
         '''
         return self.get_param('limit_bandwidth:min')
 
     def get_limit_bandwidth_increment(self):
         '''
-        Set/get bandwidth(datarate)(in Megabits)XI_PRM_LIMIT_BANDWIDTH
+        Set/get bandwidth(data rate in Megabits)XI_PRM_LIMIT_BANDWIDTH
         '''
         return self.get_param('limit_bandwidth:inc')
 
     def set_limit_bandwidth(self, limit_bandwidth):
         '''
-        Set/get bandwidth(datarate)(in Megabits)XI_PRM_LIMIT_BANDWIDTH
+        Set/get bandwidth(data rate in Megabits)XI_PRM_LIMIT_BANDWIDTH
         '''
         self.set_param('limit_bandwidth', limit_bandwidth)
 
@@ -2154,31 +2519,31 @@ class Camera(object):
 
     def get_image_data_bit_depth(self):
         '''
-        bitdepth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
+        bit depth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
         '''
         return self.get_param('image_data_bit_depth')
 
     def get_image_data_bit_depth_maximum(self):
         '''
-        bitdepth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
+        bit depth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
         '''
         return self.get_param('image_data_bit_depth:max')
 
     def get_image_data_bit_depth_minimum(self):
         '''
-        bitdepth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
+        bit depth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
         '''
         return self.get_param('image_data_bit_depth:min')
 
     def get_image_data_bit_depth_increment(self):
         '''
-        bitdepth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
+        bit depth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
         '''
         return self.get_param('image_data_bit_depth:inc')
 
     def set_image_data_bit_depth(self, image_data_bit_depth):
         '''
-        bitdepth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
+        bit depth of data returned by function xiGetImageXI_PRM_IMAGE_DATA_BIT_DEPTH
         '''
         self.set_param('image_data_bit_depth', image_data_bit_depth)
 
@@ -2410,49 +2775,49 @@ class Camera(object):
 
     def get_hous_temp(self):
         '''
-        Camera housing tepmeratureXI_PRM_HOUS_TEMP
+        Camera housing temperatureXI_PRM_HOUS_TEMP
         '''
         return self.get_param('hous_temp')
 
     def get_hous_temp_maximum(self):
         '''
-        Camera housing tepmeratureXI_PRM_HOUS_TEMP
+        Camera housing temperatureXI_PRM_HOUS_TEMP
         '''
         return self.get_param('hous_temp:max')
 
     def get_hous_temp_minimum(self):
         '''
-        Camera housing tepmeratureXI_PRM_HOUS_TEMP
+        Camera housing temperatureXI_PRM_HOUS_TEMP
         '''
         return self.get_param('hous_temp:min')
 
     def get_hous_temp_increment(self):
         '''
-        Camera housing tepmeratureXI_PRM_HOUS_TEMP
+        Camera housing temperatureXI_PRM_HOUS_TEMP
         '''
         return self.get_param('hous_temp:inc')
 
     def get_hous_back_side_temp(self):
         '''
-        Camera housing back side tepmeratureXI_PRM_HOUS_BACK_SIDE_TEMP
+        Camera housing back side temperatureXI_PRM_HOUS_BACK_SIDE_TEMP
         '''
         return self.get_param('hous_back_side_temp')
 
     def get_hous_back_side_temp_maximum(self):
         '''
-        Camera housing back side tepmeratureXI_PRM_HOUS_BACK_SIDE_TEMP
+        Camera housing back side temperatureXI_PRM_HOUS_BACK_SIDE_TEMP
         '''
         return self.get_param('hous_back_side_temp:max')
 
     def get_hous_back_side_temp_minimum(self):
         '''
-        Camera housing back side tepmeratureXI_PRM_HOUS_BACK_SIDE_TEMP
+        Camera housing back side temperatureXI_PRM_HOUS_BACK_SIDE_TEMP
         '''
         return self.get_param('hous_back_side_temp:min')
 
     def get_hous_back_side_temp_increment(self):
         '''
-        Camera housing back side tepmeratureXI_PRM_HOUS_BACK_SIDE_TEMP
+        Camera housing back side temperatureXI_PRM_HOUS_BACK_SIDE_TEMP
         '''
         return self.get_param('hous_back_side_temp:inc')
 
@@ -2738,31 +3103,31 @@ class Camera(object):
 
     def get_sharpness(self):
         '''
-        Sharpness StrenghtXI_PRM_SHARPNESS
+        Sharpness strengthXI_PRM_SHARPNESS
         '''
         return self.get_param('sharpness')
 
     def get_sharpness_maximum(self):
         '''
-        Sharpness StrenghtXI_PRM_SHARPNESS
+        Sharpness strengthXI_PRM_SHARPNESS
         '''
         return self.get_param('sharpness:max')
 
     def get_sharpness_minimum(self):
         '''
-        Sharpness StrenghtXI_PRM_SHARPNESS
+        Sharpness strengthXI_PRM_SHARPNESS
         '''
         return self.get_param('sharpness:min')
 
     def get_sharpness_increment(self):
         '''
-        Sharpness StrenghtXI_PRM_SHARPNESS
+        Sharpness strengthXI_PRM_SHARPNESS
         '''
         return self.get_param('sharpness:inc')
 
     def set_sharpness(self, sharpness):
         '''
-        Sharpness StrenghtXI_PRM_SHARPNESS
+        Sharpness strengthXI_PRM_SHARPNESS
         '''
         self.set_param('sharpness', sharpness)
 
@@ -3276,6 +3641,24 @@ class Camera(object):
         '''
         self.set_param('defccMTX', defccMTX)
 
+    def is_ccMTXnorm(self):
+        '''
+        Normalize color correction matrixXI_PRM_CC_MATRIX_NORM
+        '''
+        return self.get_param('ccMTXnorm')
+
+    def enable_ccMTXnorm(self):
+        '''
+        Normalize color correction matrixXI_PRM_CC_MATRIX_NORM
+        '''
+        self.set_param('ccMTXnorm', True)
+
+    def disable_ccMTXnorm(self):
+        '''
+        Normalize color correction matrixXI_PRM_CC_MATRIX_NORM
+        '''
+        self.set_param('ccMTXnorm', False)
+
 #-------------------------------------------------------------------------------------------------------------------
 # ---- Parameter Group: Device IO
 #-------------------------------------------------------------------------------------------------------------------
@@ -3541,6 +3924,54 @@ class Camera(object):
         GPI levelXI_PRM_GPI_LEVEL
         '''
         return self.get_param('gpi_level:inc')
+
+    def get_gpi_level_at_image_exp_start(self):
+        '''
+        GPI Level at image exposure startXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_START
+        '''
+        return self.get_param('gpi_level_at_image_exp_start')
+
+    def get_gpi_level_at_image_exp_start_maximum(self):
+        '''
+        GPI Level at image exposure startXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_START
+        '''
+        return self.get_param('gpi_level_at_image_exp_start:max')
+
+    def get_gpi_level_at_image_exp_start_minimum(self):
+        '''
+        GPI Level at image exposure startXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_START
+        '''
+        return self.get_param('gpi_level_at_image_exp_start:min')
+
+    def get_gpi_level_at_image_exp_start_increment(self):
+        '''
+        GPI Level at image exposure startXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_START
+        '''
+        return self.get_param('gpi_level_at_image_exp_start:inc')
+
+    def get_gpi_level_at_image_exp_end(self):
+        '''
+        GPI Level at image exposure endXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_END
+        '''
+        return self.get_param('gpi_level_at_image_exp_end')
+
+    def get_gpi_level_at_image_exp_end_maximum(self):
+        '''
+        GPI Level at image exposure endXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_END
+        '''
+        return self.get_param('gpi_level_at_image_exp_end:max')
+
+    def get_gpi_level_at_image_exp_end_minimum(self):
+        '''
+        GPI Level at image exposure endXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_END
+        '''
+        return self.get_param('gpi_level_at_image_exp_end:min')
+
+    def get_gpi_level_at_image_exp_end_increment(self):
+        '''
+        GPI Level at image exposure endXI_PRM_GPI_LEVEL_AT_IMAGE_EXP_END
+        '''
+        return self.get_param('gpi_level_at_image_exp_end:inc')
 
     def get_gpo_selector(self):
         '''
@@ -3918,25 +4349,25 @@ class Camera(object):
 
     def get_lens_focus_distance(self):
         '''
-        Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
+        (Planned feature Issue#6958). Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
         '''
         return self.get_param('lens_focus_distance')
 
     def get_lens_focus_distance_maximum(self):
         '''
-        Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
+        (Planned feature Issue#6958). Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
         '''
         return self.get_param('lens_focus_distance:max')
 
     def get_lens_focus_distance_minimum(self):
         '''
-        Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
+        (Planned feature Issue#6958). Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
         '''
         return self.get_param('lens_focus_distance:min')
 
     def get_lens_focus_distance_increment(self):
         '''
-        Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
+        (Planned feature Issue#6958). Lens focus distance in cm.XI_PRM_LENS_FOCUS_DISTANCE
         '''
         return self.get_param('lens_focus_distance:inc')
 
@@ -4490,25 +4921,25 @@ class Camera(object):
 
     def get_available_bandwidth(self):
         '''
-        Measure and return available interface bandwidth(int Megabits)XI_PRM_AVAILABLE_BANDWIDTH
+        Measure available interface bandwidth (in Megabits)XI_PRM_AVAILABLE_BANDWIDTH
         '''
         return self.get_param('available_bandwidth')
 
     def get_available_bandwidth_maximum(self):
         '''
-        Measure and return available interface bandwidth(int Megabits)XI_PRM_AVAILABLE_BANDWIDTH
+        Measure available interface bandwidth (in Megabits)XI_PRM_AVAILABLE_BANDWIDTH
         '''
         return self.get_param('available_bandwidth:max')
 
     def get_available_bandwidth_minimum(self):
         '''
-        Measure and return available interface bandwidth(int Megabits)XI_PRM_AVAILABLE_BANDWIDTH
+        Measure available interface bandwidth (in Megabits)XI_PRM_AVAILABLE_BANDWIDTH
         '''
         return self.get_param('available_bandwidth:min')
 
     def get_available_bandwidth_increment(self):
         '''
-        Measure and return available interface bandwidth(int Megabits)XI_PRM_AVAILABLE_BANDWIDTH
+        Measure available interface bandwidth (in Megabits)XI_PRM_AVAILABLE_BANDWIDTH
         '''
         return self.get_param('available_bandwidth:inc')
 
@@ -4652,31 +5083,31 @@ class Camera(object):
 
     def get_ts_rst_mode(self):
         '''
-        Defines how time stamp reset engine will be armedXI_PRM_TS_RST_MODE
+        Defines how TimeStamp reset engine will be armedXI_PRM_TS_RST_MODE
         '''
         return self.get_param('ts_rst_mode')
 
     def get_ts_rst_mode_maximum(self):
         '''
-        Defines how time stamp reset engine will be armedXI_PRM_TS_RST_MODE
+        Defines how TimeStamp reset engine will be armedXI_PRM_TS_RST_MODE
         '''
         return self.get_param('ts_rst_mode:max')
 
     def get_ts_rst_mode_minimum(self):
         '''
-        Defines how time stamp reset engine will be armedXI_PRM_TS_RST_MODE
+        Defines how TimeStamp reset engine will be armedXI_PRM_TS_RST_MODE
         '''
         return self.get_param('ts_rst_mode:min')
 
     def get_ts_rst_mode_increment(self):
         '''
-        Defines how time stamp reset engine will be armedXI_PRM_TS_RST_MODE
+        Defines how TimeStamp reset engine will be armedXI_PRM_TS_RST_MODE
         '''
         return self.get_param('ts_rst_mode:inc')
 
     def set_ts_rst_mode(self, ts_rst_mode):
         '''
-        Defines how time stamp reset engine will be armedXI_PRM_TS_RST_MODE
+        Defines how TimeStamp reset engine will be armedXI_PRM_TS_RST_MODE
         '''
         self.set_param('ts_rst_mode', ts_rst_mode)
 
@@ -4872,33 +5303,63 @@ class Camera(object):
 
     def get_acq_transport_buffer_commit(self):
         '''
-        Number of buffers to commit to low levelXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
+        Total number of buffers to be committed to transport layer. Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
         '''
         return self.get_param('acq_transport_buffer_commit')
 
     def get_acq_transport_buffer_commit_maximum(self):
         '''
-        Number of buffers to commit to low levelXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
+        Total number of buffers to be committed to transport layer. Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
         '''
         return self.get_param('acq_transport_buffer_commit:max')
 
     def get_acq_transport_buffer_commit_minimum(self):
         '''
-        Number of buffers to commit to low levelXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
+        Total number of buffers to be committed to transport layer. Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
         '''
         return self.get_param('acq_transport_buffer_commit:min')
 
     def get_acq_transport_buffer_commit_increment(self):
         '''
-        Number of buffers to commit to low levelXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
+        Total number of buffers to be committed to transport layer. Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
         '''
         return self.get_param('acq_transport_buffer_commit:inc')
 
     def set_acq_transport_buffer_commit(self, acq_transport_buffer_commit):
         '''
-        Number of buffers to commit to low levelXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
+        Total number of buffers to be committed to transport layer. Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_BUFFER_COMMIT
         '''
         self.set_param('acq_transport_buffer_commit', acq_transport_buffer_commit)
+
+    def get_acq_transport_data_commit_total_size(self):
+        '''
+        Total number of bytes to be commit in one time on transport (all transport buffers together). Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_DATA_COMMIT_TOTAL_SIZE
+        '''
+        return self.get_param('acq_transport_data_commit_total_size')
+
+    def get_acq_transport_data_commit_total_size_maximum(self):
+        '''
+        Total number of bytes to be commit in one time on transport (all transport buffers together). Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_DATA_COMMIT_TOTAL_SIZE
+        '''
+        return self.get_param('acq_transport_data_commit_total_size:max')
+
+    def get_acq_transport_data_commit_total_size_minimum(self):
+        '''
+        Total number of bytes to be commit in one time on transport (all transport buffers together). Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_DATA_COMMIT_TOTAL_SIZE
+        '''
+        return self.get_param('acq_transport_data_commit_total_size:min')
+
+    def get_acq_transport_data_commit_total_size_increment(self):
+        '''
+        Total number of bytes to be commit in one time on transport (all transport buffers together). Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_DATA_COMMIT_TOTAL_SIZE
+        '''
+        return self.get_param('acq_transport_data_commit_total_size:inc')
+
+    def set_acq_transport_data_commit_total_size(self, acq_transport_data_commit_total_size):
+        '''
+        Total number of bytes to be commit in one time on transport (all transport buffers together). Increasing can enhance transport capacity. E.g. on USBXI_PRM_ACQ_TRANSPORT_DATA_COMMIT_TOTAL_SIZE
+        '''
+        self.set_param('acq_transport_data_commit_total_size', acq_transport_data_commit_total_size)
 
     def is_recent_frame(self):
         '''
@@ -4947,6 +5408,132 @@ class Camera(object):
         Resets the camera to default state.XI_PRM_DEVICE_RESET
         '''
         self.set_param('device_reset', device_reset)
+
+    def is_concat_img_mode(self):
+        '''
+        Enable/disable the Concatenated Images in One Buffer featureXI_PRM_CONCAT_IMG_MODE
+        '''
+        return self.get_param('concat_img_mode')
+
+    def enable_concat_img_mode(self):
+        '''
+        Enable/disable the Concatenated Images in One Buffer featureXI_PRM_CONCAT_IMG_MODE
+        '''
+        self.set_param('concat_img_mode', True)
+
+    def disable_concat_img_mode(self):
+        '''
+        Enable/disable the Concatenated Images in One Buffer featureXI_PRM_CONCAT_IMG_MODE
+        '''
+        self.set_param('concat_img_mode', False)
+
+    def get_concat_img_count(self):
+        '''
+        Number of Concatenated Images in One BufferXI_PRM_CONCAT_IMG_COUNT
+        '''
+        return self.get_param('concat_img_count')
+
+    def get_concat_img_count_maximum(self):
+        '''
+        Number of Concatenated Images in One BufferXI_PRM_CONCAT_IMG_COUNT
+        '''
+        return self.get_param('concat_img_count:max')
+
+    def get_concat_img_count_minimum(self):
+        '''
+        Number of Concatenated Images in One BufferXI_PRM_CONCAT_IMG_COUNT
+        '''
+        return self.get_param('concat_img_count:min')
+
+    def get_concat_img_count_increment(self):
+        '''
+        Number of Concatenated Images in One BufferXI_PRM_CONCAT_IMG_COUNT
+        '''
+        return self.get_param('concat_img_count:inc')
+
+    def set_concat_img_count(self, concat_img_count):
+        '''
+        Number of Concatenated Images in One BufferXI_PRM_CONCAT_IMG_COUNT
+        '''
+        self.set_param('concat_img_count', concat_img_count)
+
+    def get_concat_img_transport_img_offset(self):
+        '''
+        Offset between images when feature Concatenated Images in One Buffer is enabledXI_PRM_CONCAT_IMG_TRANSPORT_IMG_OFFSET
+        '''
+        return self.get_param('concat_img_transport_img_offset')
+
+    def get_concat_img_transport_img_offset_maximum(self):
+        '''
+        Offset between images when feature Concatenated Images in One Buffer is enabledXI_PRM_CONCAT_IMG_TRANSPORT_IMG_OFFSET
+        '''
+        return self.get_param('concat_img_transport_img_offset:max')
+
+    def get_concat_img_transport_img_offset_minimum(self):
+        '''
+        Offset between images when feature Concatenated Images in One Buffer is enabledXI_PRM_CONCAT_IMG_TRANSPORT_IMG_OFFSET
+        '''
+        return self.get_param('concat_img_transport_img_offset:min')
+
+    def get_concat_img_transport_img_offset_increment(self):
+        '''
+        Offset between images when feature Concatenated Images in One Buffer is enabledXI_PRM_CONCAT_IMG_TRANSPORT_IMG_OFFSET
+        '''
+        return self.get_param('concat_img_transport_img_offset:inc')
+
+    def get_probe_selector(self):
+        '''
+        Select ProbeXI_PRM_PROBE_SELECTOR
+        '''
+        return self.get_param('probe_selector')
+
+    def get_probe_selector_maximum(self):
+        '''
+        Select ProbeXI_PRM_PROBE_SELECTOR
+        '''
+        return self.get_param('probe_selector:max')
+
+    def get_probe_selector_minimum(self):
+        '''
+        Select ProbeXI_PRM_PROBE_SELECTOR
+        '''
+        return self.get_param('probe_selector:min')
+
+    def get_probe_selector_increment(self):
+        '''
+        Select ProbeXI_PRM_PROBE_SELECTOR
+        '''
+        return self.get_param('probe_selector:inc')
+
+    def set_probe_selector(self, probe_selector):
+        '''
+        Select ProbeXI_PRM_PROBE_SELECTOR
+        '''
+        self.set_param('probe_selector', probe_selector)
+
+    def get_probe_value(self):
+        '''
+        Returns Value of the selected ProbeXI_PRM_PROBE_VALUE
+        '''
+        return self.get_param('probe_value')
+
+    def get_probe_value_maximum(self):
+        '''
+        Returns Value of the selected ProbeXI_PRM_PROBE_VALUE
+        '''
+        return self.get_param('probe_value:max')
+
+    def get_probe_value_minimum(self):
+        '''
+        Returns Value of the selected ProbeXI_PRM_PROBE_VALUE
+        '''
+        return self.get_param('probe_value:min')
+
+    def get_probe_value_increment(self):
+        '''
+        Returns Value of the selected ProbeXI_PRM_PROBE_VALUE
+        '''
+        return self.get_param('probe_value:inc')
 
 #-------------------------------------------------------------------------------------------------------------------
 # ---- Parameter Group: Sensor Defects Correction
@@ -5011,6 +5598,66 @@ class Camera(object):
         Correction of row FPNXI_PRM_ROW_FPN_CORRECTION
         '''
         self.set_param('row_fpn_correction', row_fpn_correction)
+
+    def get_column_black_offset_correction(self):
+        '''
+        Correction of column black offsetXI_PRM_COLUMN_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('column_black_offset_correction')
+
+    def get_column_black_offset_correction_maximum(self):
+        '''
+        Correction of column black offsetXI_PRM_COLUMN_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('column_black_offset_correction:max')
+
+    def get_column_black_offset_correction_minimum(self):
+        '''
+        Correction of column black offsetXI_PRM_COLUMN_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('column_black_offset_correction:min')
+
+    def get_column_black_offset_correction_increment(self):
+        '''
+        Correction of column black offsetXI_PRM_COLUMN_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('column_black_offset_correction:inc')
+
+    def set_column_black_offset_correction(self, column_black_offset_correction):
+        '''
+        Correction of column black offsetXI_PRM_COLUMN_BLACK_OFFSET_CORRECTION
+        '''
+        self.set_param('column_black_offset_correction', column_black_offset_correction)
+
+    def get_row_black_offset_correction(self):
+        '''
+        Correction of row black offsetXI_PRM_ROW_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('row_black_offset_correction')
+
+    def get_row_black_offset_correction_maximum(self):
+        '''
+        Correction of row black offsetXI_PRM_ROW_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('row_black_offset_correction:max')
+
+    def get_row_black_offset_correction_minimum(self):
+        '''
+        Correction of row black offsetXI_PRM_ROW_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('row_black_offset_correction:min')
+
+    def get_row_black_offset_correction_increment(self):
+        '''
+        Correction of row black offsetXI_PRM_ROW_BLACK_OFFSET_CORRECTION
+        '''
+        return self.get_param('row_black_offset_correction:inc')
+
+    def set_row_black_offset_correction(self, row_black_offset_correction):
+        '''
+        Correction of row black offsetXI_PRM_ROW_BLACK_OFFSET_CORRECTION
+        '''
+        self.set_param('row_black_offset_correction', row_black_offset_correction)
 
     def get_image_correction_selector(self):
         '''
@@ -5274,39 +5921,327 @@ class Camera(object):
         '''
         self.set_param('hdr_kneepoint2', hdr_kneepoint2)
 
+    def get_trans_data_black_level_ovr(self):
+        '''
+        Overwrites black level comming from transport data.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR
+        '''
+        return self.get_param('trans_data_black_level_ovr')
+
+    def get_trans_data_black_level_ovr_maximum(self):
+        '''
+        Overwrites black level comming from transport data.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR
+        '''
+        return self.get_param('trans_data_black_level_ovr:max')
+
+    def get_trans_data_black_level_ovr_minimum(self):
+        '''
+        Overwrites black level comming from transport data.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR
+        '''
+        return self.get_param('trans_data_black_level_ovr:min')
+
+    def get_trans_data_black_level_ovr_increment(self):
+        '''
+        Overwrites black level comming from transport data.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR
+        '''
+        return self.get_param('trans_data_black_level_ovr:inc')
+
+    def set_trans_data_black_level_ovr(self, trans_data_black_level_ovr):
+        '''
+        Overwrites black level comming from transport data.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR
+        '''
+        self.set_param('trans_data_black_level_ovr', trans_data_black_level_ovr)
+
+    def is_trans_data_black_level_ovr_en(self):
+        '''
+        Enables/disables black level overwrite.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR_EN
+        '''
+        return self.get_param('trans_data_black_level_ovr_en')
+
+    def enable_trans_data_black_level_ovr_en(self):
+        '''
+        Enables/disables black level overwrite.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR_EN
+        '''
+        self.set_param('trans_data_black_level_ovr_en', True)
+
+    def disable_trans_data_black_level_ovr_en(self):
+        '''
+        Enables/disables black level overwrite.XI_PRM_TRANS_DATA_BLACK_LEVEL_OVR_EN
+        '''
+        self.set_param('trans_data_black_level_ovr_en', False)
+
     def get_image_black_level(self):
         '''
-        Last image black level counts. Can be used for Offline processing to recall it.XI_PRM_IMAGE_BLACK_LEVEL
+        Last image black level counts (same as in XI_IMG). Setting can be used only for Offline Processing.XI_PRM_IMAGE_BLACK_LEVEL
         '''
         return self.get_param('image_black_level')
 
     def get_image_black_level_maximum(self):
         '''
-        Last image black level counts. Can be used for Offline processing to recall it.XI_PRM_IMAGE_BLACK_LEVEL
+        Last image black level counts (same as in XI_IMG). Setting can be used only for Offline Processing.XI_PRM_IMAGE_BLACK_LEVEL
         '''
         return self.get_param('image_black_level:max')
 
     def get_image_black_level_minimum(self):
         '''
-        Last image black level counts. Can be used for Offline processing to recall it.XI_PRM_IMAGE_BLACK_LEVEL
+        Last image black level counts (same as in XI_IMG). Setting can be used only for Offline Processing.XI_PRM_IMAGE_BLACK_LEVEL
         '''
         return self.get_param('image_black_level:min')
 
     def get_image_black_level_increment(self):
         '''
-        Last image black level counts. Can be used for Offline processing to recall it.XI_PRM_IMAGE_BLACK_LEVEL
+        Last image black level counts (same as in XI_IMG). Setting can be used only for Offline Processing.XI_PRM_IMAGE_BLACK_LEVEL
         '''
         return self.get_param('image_black_level:inc')
 
-    def set_image_black_level(self, image_black_level):
+    def get_image_area(self):
         '''
-        Last image black level counts. Can be used for Offline processing to recall it.XI_PRM_IMAGE_BLACK_LEVEL
+        Defines image area of sensor as output.XI_PRM_IMAGE_AREA
         '''
-        self.set_param('image_black_level', image_black_level)
+        return self.get_param('image_area')
+
+    def get_image_area_maximum(self):
+        '''
+        Defines image area of sensor as output.XI_PRM_IMAGE_AREA
+        '''
+        return self.get_param('image_area:max')
+
+    def get_image_area_minimum(self):
+        '''
+        Defines image area of sensor as output.XI_PRM_IMAGE_AREA
+        '''
+        return self.get_param('image_area:min')
+
+    def get_image_area_increment(self):
+        '''
+        Defines image area of sensor as output.XI_PRM_IMAGE_AREA
+        '''
+        return self.get_param('image_area:inc')
+
+    def set_image_area(self, image_area):
+        '''
+        Defines image area of sensor as output.XI_PRM_IMAGE_AREA
+        '''
+        self.set_param('image_area', image_area)
+
+    def get_dual_adc_mode(self):
+        '''
+        Sets DualADC ModeXI_PRM_DUAL_ADC_MODE
+        '''
+        return self.get_param('dual_adc_mode')
+
+    def get_dual_adc_mode_maximum(self):
+        '''
+        Sets DualADC ModeXI_PRM_DUAL_ADC_MODE
+        '''
+        return self.get_param('dual_adc_mode:max')
+
+    def get_dual_adc_mode_minimum(self):
+        '''
+        Sets DualADC ModeXI_PRM_DUAL_ADC_MODE
+        '''
+        return self.get_param('dual_adc_mode:min')
+
+    def get_dual_adc_mode_increment(self):
+        '''
+        Sets DualADC ModeXI_PRM_DUAL_ADC_MODE
+        '''
+        return self.get_param('dual_adc_mode:inc')
+
+    def set_dual_adc_mode(self, dual_adc_mode):
+        '''
+        Sets DualADC ModeXI_PRM_DUAL_ADC_MODE
+        '''
+        self.set_param('dual_adc_mode', dual_adc_mode)
+
+    def get_dual_adc_gain_ratio(self):
+        '''
+        Sets DualADC Gain Ratio in dBXI_PRM_DUAL_ADC_GAIN_RATIO
+        '''
+        return self.get_param('dual_adc_gain_ratio')
+
+    def get_dual_adc_gain_ratio_maximum(self):
+        '''
+        Sets DualADC Gain Ratio in dBXI_PRM_DUAL_ADC_GAIN_RATIO
+        '''
+        return self.get_param('dual_adc_gain_ratio:max')
+
+    def get_dual_adc_gain_ratio_minimum(self):
+        '''
+        Sets DualADC Gain Ratio in dBXI_PRM_DUAL_ADC_GAIN_RATIO
+        '''
+        return self.get_param('dual_adc_gain_ratio:min')
+
+    def get_dual_adc_gain_ratio_increment(self):
+        '''
+        Sets DualADC Gain Ratio in dBXI_PRM_DUAL_ADC_GAIN_RATIO
+        '''
+        return self.get_param('dual_adc_gain_ratio:inc')
+
+    def set_dual_adc_gain_ratio(self, dual_adc_gain_ratio):
+        '''
+        Sets DualADC Gain Ratio in dBXI_PRM_DUAL_ADC_GAIN_RATIO
+        '''
+        self.set_param('dual_adc_gain_ratio', dual_adc_gain_ratio)
+
+    def get_dual_adc_threshold(self):
+        '''
+        Sets DualADC Threshold valueXI_PRM_DUAL_ADC_THRESHOLD
+        '''
+        return self.get_param('dual_adc_threshold')
+
+    def get_dual_adc_threshold_maximum(self):
+        '''
+        Sets DualADC Threshold valueXI_PRM_DUAL_ADC_THRESHOLD
+        '''
+        return self.get_param('dual_adc_threshold:max')
+
+    def get_dual_adc_threshold_minimum(self):
+        '''
+        Sets DualADC Threshold valueXI_PRM_DUAL_ADC_THRESHOLD
+        '''
+        return self.get_param('dual_adc_threshold:min')
+
+    def get_dual_adc_threshold_increment(self):
+        '''
+        Sets DualADC Threshold valueXI_PRM_DUAL_ADC_THRESHOLD
+        '''
+        return self.get_param('dual_adc_threshold:inc')
+
+    def set_dual_adc_threshold(self, dual_adc_threshold):
+        '''
+        Sets DualADC Threshold valueXI_PRM_DUAL_ADC_THRESHOLD
+        '''
+        self.set_param('dual_adc_threshold', dual_adc_threshold)
+
+    def get_compression_region_selector(self):
+        '''
+        Sets Compression Region SelectorXI_PRM_COMPRESSION_REGION_SELECTOR
+        '''
+        return self.get_param('compression_region_selector')
+
+    def get_compression_region_selector_maximum(self):
+        '''
+        Sets Compression Region SelectorXI_PRM_COMPRESSION_REGION_SELECTOR
+        '''
+        return self.get_param('compression_region_selector:max')
+
+    def get_compression_region_selector_minimum(self):
+        '''
+        Sets Compression Region SelectorXI_PRM_COMPRESSION_REGION_SELECTOR
+        '''
+        return self.get_param('compression_region_selector:min')
+
+    def get_compression_region_selector_increment(self):
+        '''
+        Sets Compression Region SelectorXI_PRM_COMPRESSION_REGION_SELECTOR
+        '''
+        return self.get_param('compression_region_selector:inc')
+
+    def set_compression_region_selector(self, compression_region_selector):
+        '''
+        Sets Compression Region SelectorXI_PRM_COMPRESSION_REGION_SELECTOR
+        '''
+        self.set_param('compression_region_selector', compression_region_selector)
+
+    def get_compression_region_start(self):
+        '''
+        Sets Compression Region StartXI_PRM_COMPRESSION_REGION_START
+        '''
+        return self.get_param('compression_region_start')
+
+    def get_compression_region_start_maximum(self):
+        '''
+        Sets Compression Region StartXI_PRM_COMPRESSION_REGION_START
+        '''
+        return self.get_param('compression_region_start:max')
+
+    def get_compression_region_start_minimum(self):
+        '''
+        Sets Compression Region StartXI_PRM_COMPRESSION_REGION_START
+        '''
+        return self.get_param('compression_region_start:min')
+
+    def get_compression_region_start_increment(self):
+        '''
+        Sets Compression Region StartXI_PRM_COMPRESSION_REGION_START
+        '''
+        return self.get_param('compression_region_start:inc')
+
+    def set_compression_region_start(self, compression_region_start):
+        '''
+        Sets Compression Region StartXI_PRM_COMPRESSION_REGION_START
+        '''
+        self.set_param('compression_region_start', compression_region_start)
+
+    def get_compression_region_gain(self):
+        '''
+        Sets Compression Region GainXI_PRM_COMPRESSION_REGION_GAIN
+        '''
+        return self.get_param('compression_region_gain')
+
+    def get_compression_region_gain_maximum(self):
+        '''
+        Sets Compression Region GainXI_PRM_COMPRESSION_REGION_GAIN
+        '''
+        return self.get_param('compression_region_gain:max')
+
+    def get_compression_region_gain_minimum(self):
+        '''
+        Sets Compression Region GainXI_PRM_COMPRESSION_REGION_GAIN
+        '''
+        return self.get_param('compression_region_gain:min')
+
+    def get_compression_region_gain_increment(self):
+        '''
+        Sets Compression Region GainXI_PRM_COMPRESSION_REGION_GAIN
+        '''
+        return self.get_param('compression_region_gain:inc')
+
+    def set_compression_region_gain(self, compression_region_gain):
+        '''
+        Sets Compression Region GainXI_PRM_COMPRESSION_REGION_GAIN
+        '''
+        self.set_param('compression_region_gain', compression_region_gain)
 
 #-------------------------------------------------------------------------------------------------------------------
 # ---- Parameter Group: Version info
 #-------------------------------------------------------------------------------------------------------------------
+
+    def get_version_selector(self):
+        '''
+        Selects module/unit, which version we get.XI_PRM_VERSION_SELECTOR
+        '''
+        return self.get_param('version_selector')
+
+    def get_version_selector_maximum(self):
+        '''
+        Selects module/unit, which version we get.XI_PRM_VERSION_SELECTOR
+        '''
+        return self.get_param('version_selector:max')
+
+    def get_version_selector_minimum(self):
+        '''
+        Selects module/unit, which version we get.XI_PRM_VERSION_SELECTOR
+        '''
+        return self.get_param('version_selector:min')
+
+    def get_version_selector_increment(self):
+        '''
+        Selects module/unit, which version we get.XI_PRM_VERSION_SELECTOR
+        '''
+        return self.get_param('version_selector:inc')
+
+    def set_version_selector(self, version_selector):
+        '''
+        Selects module/unit, which version we get.XI_PRM_VERSION_SELECTOR
+        '''
+        self.set_param('version_selector', version_selector)
+
+    def get_version(self,buffer_size=256):
+        '''
+        Returns version of selected module/unit(XI_PRM_VERSION_SELECTOR).XI_PRM_VERSION
+        '''
+        return self.get_param('version',buffer_size)
 
     def get_api_version(self,buffer_size=256):
         '''
@@ -5340,7 +6275,7 @@ class Camera(object):
 
     def get_version_fpga1(self,buffer_size=256):
         '''
-        Returns version of FPGA1 firmware.XI_PRM_FPGA1_VERSION
+        Returns version of FPGA firmware currently running.XI_PRM_FPGA1_VERSION
         '''
         return self.get_param('version_fpga1',buffer_size)
 
@@ -5355,6 +6290,12 @@ class Camera(object):
         Returns hardware revision number.XI_PRM_HW_REVISION
         '''
         return self.get_param('hw_revision',buffer_size)
+
+    def get_factory_set_version(self,buffer_size=256):
+        '''
+        Returns version of factory set.XI_PRM_FACTORY_SET_VERSION
+        '''
+        return self.get_param('factory_set_version',buffer_size)
 
 #-------------------------------------------------------------------------------------------------------------------
 # ---- Parameter Group: API features
@@ -5410,19 +6351,19 @@ class Camera(object):
 
     def is_new_process_chain_enable(self):
         '''
-        Enables (2015/FAPI) processing chain for MQ MU camerasXI_PRM_NEW_PROCESS_CHAIN_ENABLE
+        Enables (2015/FAPI) processing chain for MQ MU cameras. If disabled - legacy processing 2006 is used.XI_PRM_NEW_PROCESS_CHAIN_ENABLE
         '''
         return self.get_param('new_process_chain_enable')
 
     def enable_new_process_chain_enable(self):
         '''
-        Enables (2015/FAPI) processing chain for MQ MU camerasXI_PRM_NEW_PROCESS_CHAIN_ENABLE
+        Enables (2015/FAPI) processing chain for MQ MU cameras. If disabled - legacy processing 2006 is used.XI_PRM_NEW_PROCESS_CHAIN_ENABLE
         '''
         self.set_param('new_process_chain_enable', True)
 
     def disable_new_process_chain_enable(self):
         '''
-        Enables (2015/FAPI) processing chain for MQ MU camerasXI_PRM_NEW_PROCESS_CHAIN_ENABLE
+        Enables (2015/FAPI) processing chain for MQ MU cameras. If disabled - legacy processing 2006 is used.XI_PRM_NEW_PROCESS_CHAIN_ENABLE
         '''
         self.set_param('new_process_chain_enable', False)
 
@@ -5627,6 +6568,36 @@ class Camera(object):
         File number.XI_PRM_FFS_FILE_ID
         '''
         return self.get_param('ffs_file_id:inc')
+
+    def get_ffs_file_offset(self):
+        '''
+        Offset of data in file.XI_PRM_FFS_FILE_OFFSET
+        '''
+        return self.get_param('ffs_file_offset')
+
+    def get_ffs_file_offset_maximum(self):
+        '''
+        Offset of data in file.XI_PRM_FFS_FILE_OFFSET
+        '''
+        return self.get_param('ffs_file_offset:max')
+
+    def get_ffs_file_offset_minimum(self):
+        '''
+        Offset of data in file.XI_PRM_FFS_FILE_OFFSET
+        '''
+        return self.get_param('ffs_file_offset:min')
+
+    def get_ffs_file_offset_increment(self):
+        '''
+        Offset of data in file.XI_PRM_FFS_FILE_OFFSET
+        '''
+        return self.get_param('ffs_file_offset:inc')
+
+    def set_ffs_file_offset(self, ffs_file_offset):
+        '''
+        Offset of data in file.XI_PRM_FFS_FILE_OFFSET
+        '''
+        self.set_param('ffs_file_offset', ffs_file_offset)
 
     def get_ffs_file_size(self):
         '''
@@ -5934,6 +6905,54 @@ class Camera(object):
         '''
         self.set_param('device_unit_register_selector', device_unit_register_selector)
 
+    def get_device_unit_register_selector_name(self,buffer_size=256):
+        '''
+        Selects register of selected device unit by name.XI_PRM_DEVICE_UNIT_REGISTER_SELECTOR_NAME
+        '''
+        return self.get_param('device_unit_register_selector_name',buffer_size)
+
+    def set_device_unit_register_selector_name(self, device_unit_register_selector_name):
+        '''
+        Selects register of selected device unit by name.XI_PRM_DEVICE_UNIT_REGISTER_SELECTOR_NAME
+        '''
+        self.set_param('device_unit_register_selector_name', device_unit_register_selector_name)
+
+    def get_device_unit_register_selector_desc(self,buffer_size=256):
+        '''
+        Read register description of selected device unit by name.XI_PRM_DEVICE_UNIT_REGISTER_SELECTOR_DESCRIPTION
+        '''
+        return self.get_param('device_unit_register_selector_desc',buffer_size)
+
+    def get_device_unit_register_type(self):
+        '''
+        Get type of device unit register for correct data interpretation.XI_PRM_DEVICE_UNIT_REGISTER_TYPE
+        '''
+        return self.get_param('device_unit_register_type')
+
+    def get_device_unit_register_type_maximum(self):
+        '''
+        Get type of device unit register for correct data interpretation.XI_PRM_DEVICE_UNIT_REGISTER_TYPE
+        '''
+        return self.get_param('device_unit_register_type:max')
+
+    def get_device_unit_register_type_minimum(self):
+        '''
+        Get type of device unit register for correct data interpretation.XI_PRM_DEVICE_UNIT_REGISTER_TYPE
+        '''
+        return self.get_param('device_unit_register_type:min')
+
+    def get_device_unit_register_type_increment(self):
+        '''
+        Get type of device unit register for correct data interpretation.XI_PRM_DEVICE_UNIT_REGISTER_TYPE
+        '''
+        return self.get_param('device_unit_register_type:inc')
+
+    def set_device_unit_register_type(self, device_unit_register_type):
+        '''
+        Get type of device unit register for correct data interpretation.XI_PRM_DEVICE_UNIT_REGISTER_TYPE
+        '''
+        self.set_param('device_unit_register_type', device_unit_register_type)
+
     def get_device_unit_register_value(self):
         '''
         Sets/gets register value of selected device unit(XI_PRM_DEVICE_UNIT_SELECTOR).XI_PRM_DEVICE_UNIT_REGISTER_VALUE
@@ -5963,6 +6982,84 @@ class Camera(object):
         Sets/gets register value of selected device unit(XI_PRM_DEVICE_UNIT_SELECTOR).XI_PRM_DEVICE_UNIT_REGISTER_VALUE
         '''
         self.set_param('device_unit_register_value', device_unit_register_value)
+
+    def get_device_unit_register_enum_value_count(self):
+        '''
+        Read register enumerated values count.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_COUNT
+        '''
+        return self.get_param('device_unit_register_enum_value_count')
+
+    def get_device_unit_register_enum_value_count_maximum(self):
+        '''
+        Read register enumerated values count.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_COUNT
+        '''
+        return self.get_param('device_unit_register_enum_value_count:max')
+
+    def get_device_unit_register_enum_value_count_minimum(self):
+        '''
+        Read register enumerated values count.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_COUNT
+        '''
+        return self.get_param('device_unit_register_enum_value_count:min')
+
+    def get_device_unit_register_enum_value_count_increment(self):
+        '''
+        Read register enumerated values count.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_COUNT
+        '''
+        return self.get_param('device_unit_register_enum_value_count:inc')
+
+    def get_device_unit_register_enum_value_index(self):
+        '''
+        Sets/gets register enumerated value index.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_INDEX
+        '''
+        return self.get_param('device_unit_register_enum_value_index')
+
+    def get_device_unit_register_enum_value_index_maximum(self):
+        '''
+        Sets/gets register enumerated value index.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_INDEX
+        '''
+        return self.get_param('device_unit_register_enum_value_index:max')
+
+    def get_device_unit_register_enum_value_index_minimum(self):
+        '''
+        Sets/gets register enumerated value index.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_INDEX
+        '''
+        return self.get_param('device_unit_register_enum_value_index:min')
+
+    def get_device_unit_register_enum_value_index_increment(self):
+        '''
+        Sets/gets register enumerated value index.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_INDEX
+        '''
+        return self.get_param('device_unit_register_enum_value_index:inc')
+
+    def set_device_unit_register_enum_value_index(self, device_unit_register_enum_value_index):
+        '''
+        Sets/gets register enumerated value index.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE_INDEX
+        '''
+        self.set_param('device_unit_register_enum_value_index', device_unit_register_enum_value_index)
+
+    def get_device_unit_register_enum_value(self):
+        '''
+        Read register enumerated value.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE
+        '''
+        return self.get_param('device_unit_register_enum_value')
+
+    def get_device_unit_register_enum_value_maximum(self):
+        '''
+        Read register enumerated value.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE
+        '''
+        return self.get_param('device_unit_register_enum_value:max')
+
+    def get_device_unit_register_enum_value_minimum(self):
+        '''
+        Read register enumerated value.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE
+        '''
+        return self.get_param('device_unit_register_enum_value:min')
+
+    def get_device_unit_register_enum_value_increment(self):
+        '''
+        Read register enumerated value.XI_PRM_DEVICE_UNIT_REGISTER_ENUM_VALUE
+        '''
+        return self.get_param('device_unit_register_enum_value:inc')
 
     def get_api_progress_callback(self,buffer_size=256):
         '''
@@ -6149,4 +7246,122 @@ class Camera(object):
         Data Pipe processor parameter valueXI_PRM_DP_PARAM_VALUE
         '''
         self.set_param('dp_param_value', dp_param_value)
+
+    def is_gentl_stream_en(self):
+        '''
+        Enable or disable low level streaming via GenTL.XI_PRM_GENTL_DATASTREAM_ENABLED
+        '''
+        return self.get_param('gentl_stream_en')
+
+    def enable_gentl_stream_en(self):
+        '''
+        Enable or disable low level streaming via GenTL.XI_PRM_GENTL_DATASTREAM_ENABLED
+        '''
+        self.set_param('gentl_stream_en', True)
+
+    def disable_gentl_stream_en(self):
+        '''
+        Enable or disable low level streaming via GenTL.XI_PRM_GENTL_DATASTREAM_ENABLED
+        '''
+        self.set_param('gentl_stream_en', False)
+
+    def get_gentl_stream_context(self,buffer_size=256):
+        '''
+        Get GenTL stream context pointer for low level streamingXI_PRM_GENTL_DATASTREAM_CONTEXT
+        '''
+        return self.get_param('gentl_stream_context',buffer_size)
+
+#-------------------------------------------------------------------------------------------------------------------
+# ---- Parameter Group: User Set Control
+#-------------------------------------------------------------------------------------------------------------------
+
+    def get_user_set_selector(self):
+        '''
+        Selects the feature User Set to load, save or configure.XI_PRM_USER_SET_SELECTOR
+        '''
+        return self.get_param('user_set_selector')
+
+    def get_user_set_selector_maximum(self):
+        '''
+        Selects the feature User Set to load, save or configure.XI_PRM_USER_SET_SELECTOR
+        '''
+        return self.get_param('user_set_selector:max')
+
+    def get_user_set_selector_minimum(self):
+        '''
+        Selects the feature User Set to load, save or configure.XI_PRM_USER_SET_SELECTOR
+        '''
+        return self.get_param('user_set_selector:min')
+
+    def get_user_set_selector_increment(self):
+        '''
+        Selects the feature User Set to load, save or configure.XI_PRM_USER_SET_SELECTOR
+        '''
+        return self.get_param('user_set_selector:inc')
+
+    def set_user_set_selector(self, user_set_selector):
+        '''
+        Selects the feature User Set to load, save or configure.XI_PRM_USER_SET_SELECTOR
+        '''
+        self.set_param('user_set_selector', user_set_selector)
+
+    def get_user_set_load(self):
+        '''
+        Loads the User Set specified by User Set Selector to the device and makes it active.XI_PRM_USER_SET_LOAD
+        '''
+        return self.get_param('user_set_load')
+
+    def get_user_set_load_maximum(self):
+        '''
+        Loads the User Set specified by User Set Selector to the device and makes it active.XI_PRM_USER_SET_LOAD
+        '''
+        return self.get_param('user_set_load:max')
+
+    def get_user_set_load_minimum(self):
+        '''
+        Loads the User Set specified by User Set Selector to the device and makes it active.XI_PRM_USER_SET_LOAD
+        '''
+        return self.get_param('user_set_load:min')
+
+    def get_user_set_load_increment(self):
+        '''
+        Loads the User Set specified by User Set Selector to the device and makes it active.XI_PRM_USER_SET_LOAD
+        '''
+        return self.get_param('user_set_load:inc')
+
+    def set_user_set_load(self, user_set_load):
+        '''
+        Loads the User Set specified by User Set Selector to the device and makes it active.XI_PRM_USER_SET_LOAD
+        '''
+        self.set_param('user_set_load', user_set_load)
+
+    def get_user_set_default(self):
+        '''
+        Selects the feature User Set to load and make active by default when the device is reset. Change might affect default mode in other applications, e.g. CamTool.XI_PRM_USER_SET_DEFAULT
+        '''
+        return self.get_param('user_set_default')
+
+    def get_user_set_default_maximum(self):
+        '''
+        Selects the feature User Set to load and make active by default when the device is reset. Change might affect default mode in other applications, e.g. CamTool.XI_PRM_USER_SET_DEFAULT
+        '''
+        return self.get_param('user_set_default:max')
+
+    def get_user_set_default_minimum(self):
+        '''
+        Selects the feature User Set to load and make active by default when the device is reset. Change might affect default mode in other applications, e.g. CamTool.XI_PRM_USER_SET_DEFAULT
+        '''
+        return self.get_param('user_set_default:min')
+
+    def get_user_set_default_increment(self):
+        '''
+        Selects the feature User Set to load and make active by default when the device is reset. Change might affect default mode in other applications, e.g. CamTool.XI_PRM_USER_SET_DEFAULT
+        '''
+        return self.get_param('user_set_default:inc')
+
+    def set_user_set_default(self, user_set_default):
+        '''
+        Selects the feature User Set to load and make active by default when the device is reset. Change might affect default mode in other applications, e.g. CamTool.XI_PRM_USER_SET_DEFAULT
+        '''
+        self.set_param('user_set_default', user_set_default)
 

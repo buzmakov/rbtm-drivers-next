@@ -8,4 +8,4 @@ Module provides means to connect to ximea cameras, set and get different
 parameters, acquire images, retrieve image data, etc.
 '''
 
-__version__ = '0.0.0'
+__version__ = '4.27.21'

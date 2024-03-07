@@ -1,0 +1,31 @@
+#!/bin/sh
+# starting of CURRERA acquisition driver
+
+NAME=currera_init
+DESC="CURRERA acquisition driver"
+DEV=/dev/cura0
+
+case "$1" in
+  start)
+        echo "Starting $DESC: "
+	insmod /opt/XIMEA/modules/currera_acq.ko
+	rm $DEV 2>/dev/null
+	mknod $DEV c `awk '$2=="currera_acq" {print $1}' /proc/devices` 0
+	chmod o+w /dev/cura0
+	echo "OK"
+        ;;
+  stop)
+        echo "Stopping $DESC: "
+	rmmod currera_acq.ko
+	rm $DEV
+	echo "OK"
+        ;;
+
+  *)
+        N=/etc/init.d/$NAME
+        echo "Usage: $N {start|stop}" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

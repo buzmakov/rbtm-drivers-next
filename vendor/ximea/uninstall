@@ -4,7 +4,7 @@ desktop1="$(eval echo "~$SUDO_USER/Desktop/streamViewer.desktop")"
 desktop2="$(eval echo "~$SUDO_USER/Desktop/xiCamTool.desktop")"
 py_site_dir="$(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())" 2>/dev/null)"
 py2_site_dir="$(python2 -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())" 2>/dev/null)"
-py3_site_dir="$(python3 -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())" 2>/dev/null)"
+py3_site_dir='$(python3 -c 'import sysconfig as s; print(s.get_path("platlib"))' 2>/dev/null)'
 
 echo "This script will remove the following files and directories:"
 echo "/opt/XIMEA/"

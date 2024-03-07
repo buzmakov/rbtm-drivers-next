@@ -3,6 +3,7 @@
 //-------------------------------------------------------------------------------------------------------------------
 // FPGA Register Address Space, common to all PCIe family devices
 //-------------------------------------------------------------------------------------------------------------------
+// The whole register map is visualized in the document in FPGA Git: FPGA\DOC\API_Register_Map.xlsx
 
 // PCIe block dedicated address 0-7 sub-section 
 #define FPGA_PCIE_COMM_REG_TRANSPORT_CTRL           0
@@ -69,6 +70,16 @@
 #define FPGA_REG_TRIG_DELAY                         62
 #define FPGA_REG_ACQ_COUNTERS                       63
 
+// FrameBuffer config register
+#define FPGA_REG_FRAMEBUF_CFG                       74
+
+// Power sync register
+#define FPGA_POWER_STAGE_SYNC						77
+
+// eMMC Flash
+#define FPGA_REG_MMC_DAT                             92
+#define FPGA_REG_MMC_CMD                             93
+
 // SNE
 #define FPGA_REG_SNE_REG_1                          96
 #define FPGA_REG_SNE_REG_2                          97
@@ -76,6 +87,9 @@
 #define FPGA_REG_ROWCOR_BRAM_ADDR                   98
 #define FPGA_REG_ROWCOR_BRAM_DAT                    99
 #define FPGA_REG_ROWCOR_CFG                         100
+#define FPGA_REG_EXP_PULSE_OUT_CFG                  102
+#define FPGA_REG_IO_DEBOUNCE                        103
+#define FPGA_REG_DEPADDER_CFG                       104
 
 // Misc
 #define FPGA_REG_PLTR_CTRL                          70
@@ -159,56 +173,104 @@
 #define	ACQ_CTRL_WR_OFFSET_EXP_MODE             1
 #define ACQ_CTRL_WR_OFFSET_FORCE_FRAME_CNT_RST  4   //force reset of acq_frame_count
 #define ACQ_CTRL_WR_OFFSET_EN_ACQ_FRAME_CNT_RST 5   //enable automatic reset of acq_frame_count by acqusitions start (needed for U3V)
+#define ACQ_CTRL_WR_OFFSET_DUAL_EXP_HDR_EN      6   // Enable interline dual exposure HDR mode
+
 
 // FPGA_REG_ACQ_CTRL - READ Offsets
 #define	ACQ_CTRL_RD_OFFSET_EN                   0
 #define	ACQ_CTRL_RD_OFFSET_EXP_MODE             1
 #define ACQ_CTRL_RD_OFFSET_FORCE_FRAME_CNT_RST  4   //force reset of acq_frame_count
 #define ACQ_CTRL_RD_OFFSET_EN_ACQ_FRAME_CNT_RST 5   //disable automatic reset of acq_frame_count by acqusitions start (needed for U3V)
+#define ACQ_CTRL_RD_OFFSET_DUAL_EXP_HDR_EN      6   // Enable interline dual exposure HDR mode
 
 // FPGA_REG_ACQ_CTRL - MASK
 #define	ACQ_CTRL_RD_MASK_EN                     0x0001
 #define	ACQ_CTRL_RD_MASK_EXP_MODE               0x000E
 #define ACQ_CTRL_RD_MASK_FORCE_FRAME_CNT_RST    0x0010   //force reset of acq_frame_count
 #define ACQ_CTRL_RD_MASK_EN_ACQ_FRAME_CNT_RST   0x0020   //disable automatic reset of acq_frame_count by acqusitions start (needed for U3V)
+#define ACQ_CTRL_RD_MASK_DUAL_EXP_HDR_EN        0x0040   // Enable interline dual exposure HDR mode
 
 // FPGA_REG_IO_SELECT - WRITE Offsets
-#define	IO_SELECT_WR_OFFSET_LINE_SEL            0
+#define	IO_SELECT_WR_OFFSET_LINE_SEL            0       // 4 lower bits of line_selector[3:0]
 #define	IO_SELECT_WR_OFFSET_TRIG_SEL            4
-#define	IO_SELECT_WR_OFFSET_RXD_SEL             8
+#define	IO_SELECT_WR_OFFSET_RXD_SEL             8       // 4 lower bits of uart_rxd_selector[3:0]
 #define	IO_SELECT_WR_OFFSET_USER_OUT_SEL        12
+#define	IO_SELECT_WR_OFFSET_LINE_SEL_1          16      // 2 higher bits of line_selector[5:4]
+#define	IO_SELECT_WR_OFFSET_RXD_SEL_1           18      // 2 higher bits of uart_rxd_selector[5:4]
 
 // FPGA_REG_IO_SELECT - READ Offsets
 #define	IO_SELECT_RD_OFFSET_LINE_SEL            0
 #define	IO_SELECT_RD_OFFSET_TRIG_SEL            4
 #define	IO_SELECT_RD_OFFSET_RXD_SEL             8
 #define	IO_SELECT_RD_OFFSET_USER_OUT_SEL        12
+#define	IO_SELECT_RD_OFFSET_LINE_SEL_1          16
+#define	IO_SELECT_RD_OFFSET_RXD_SEL_1           18
 
 // FPGA_REG_IO_CONFIG - WRITE Offsets
 // Sets Invert, Mode and Source parameters of IO Line selected by IO_SELECT
 #define	IO_CONFIG_WR_OFFSET_INVERTER            0
 #define	IO_CONFIG_WR_OFFSET_MODE		        1
-#define	IO_CONFIG_WR_OFFSET_SOURCE              2
+#define	IO_CONFIG_WR_OFFSET_SOURCE              2       // 5 lower bits of io_source_mux[4:0]
+//24 bits STATUS RD
+#define	IO_CONFIG_WR_OFFSET_SOURCE_1            31      // 1 higher bit of io_source_mux[5]
 
-// FPGA_REG_IO_CONFIG - READ Offsets: 32bit register [00000000 0ttttttt tttttttt tsssssmi]
+// FPGA_REG_IO_CONFIG - READ Offsets: 32bit register [sttttttt tttttttt tttttttt tsssssmi]
 // i = LineInverter IO_CONFIG_RD_OFFSET_INVERTER    (1 bit   = 0 invertor is off, =1 invertor is active)
 // m = LineMode     IO_CONFIG_RD_OFFSET_MODE        (1 bit   = 1 line is output, =0 line is input)
-// s = LineSource   IO_CONFIG_RD_OFFSET_SOURCE      (5 bits  = values see PcieFamLineSource)
-// t = LineStatus   IO_CONFIG_RD_OFFSET_STATUS      (16 bits = digital status of 16 lines (not all may be physically present on device), bit index = PcieFamLineSelector)
+// s = LineSource   IO_CONFIG_RD_OFFSET_SOURCE      (6 bits  = values see PcieFamLineSource)
+// t = LineStatus   IO_CONFIG_RD_OFFSET_STATUS      (24 bits = digital status of 16 lines (not all may be physically present on device), bit index = PcieFamLineSelector)
 #define	IO_CONFIG_RD_OFFSET_INVERTER            0
 #define	IO_CONFIG_RD_OFFSET_MODE		        1
-#define	IO_CONFIG_RD_OFFSET_SOURCE              2
-#define	IO_CONFIG_RD_OFFSET_STATUS              7
+#define	IO_CONFIG_RD_OFFSET_SOURCE              2   // 5 lower bits of io_source_mux[4:0]
+#define	IO_CONFIG_RD_OFFSET_STATUS              7   // 24 bits
+#define	IO_CONFIG_RD_OFFSET_SOURCE_1            31  // 1 higher bit of io_source_mux[5]
 
 // FPGA_REG_IO_UART - WRITE Offsets
-#define	IO_UART_WR_OFFSET_START			        0
-#define	IO_UART_WR_OFFSET_DAT			        1
-#define	IO_UART_WR_OFFSET_BAUD		            9
+#define	IO_UART_WR_OFFSET_FEAT_DAT			    0   // 23 bits - data
+#define	IO_UART_WR_OFFSET_FEAT_DAT_WR			23  // 1 bit - wr/rd
+#define	IO_UART_WR_OFFSET_FEAT_SEL			    24  // 8 bit - feature selector
 
 // FPGA_REG_IO_UART - READ Offsets
-#define	IO_UART_RD_OFFSET_READY 		        0
-#define	IO_UART_RD_OFFSET_DAT			        1
-#define	IO_UART_RD_OFFSET_BAUD		            9
+#define	IO_UART_RD_OFFSET_FEAT_DAT			    0   // 23 bits - data
+#define	IO_UART_RD_OFFSET_FEAT_SEL			    24  // 8 bit - feature selector
+
+// UART register feature selector
+#define UART_FEAT_SEL_MODE                      0
+#define UART_FEAT_SEL_BAUDRATE                  1
+#define UART_FEAT_SEL_MSB_FIRST                 2
+#define UART_FEAT_SEL_ADD_BITS                  3   // additional bits (start/stop(s)), see additional_control_bits
+// ... // reserved
+#define UART_FEAT_SEL_COMPOSER_EVENT_NOW        64
+#define UART_FEAT_SEL_COMPOSER_PACKET_CRC16     65
+#define UART_FEAT_SEL_COMPOSER_USER_DATA        66
+#define UART_FEAT_SEL_COMPOSER_USER_ID          67
+#define UART_FEAT_SEL_COMPOSER_FRAME_NUM        68
+#define UART_FEAT_SEL_COMPOSER_TS_EXP_R         69  // timestamp of exp rising edge
+#define UART_FEAT_SEL_COMPOSER_TS_EXP_F         70  // timestamp of exp falling edge
+#define UART_FEAT_SEL_COMPOSER_TS_READ_R        71
+#define UART_FEAT_SEL_COMPOSER_TS_READ_F        72
+#define UART_FEAT_SEL_COMPOSER_TS_TRANSFER_R    73
+#define UART_FEAT_SEL_COMPOSER_TS_TRANSFER_F    74
+#define UART_FEAT_SEL_COMPOSER_ERROR            75
+#define UART_FEAT_SEL_COMPOSER_IMG_CRC          76
+// ... // reserved
+
+#define UART_MODE_NORMAL        0
+#define UART_MODE_BIPHASE_ENC   1
+
+// DATA offsets when selector is COMPOSER
+#define UART_FEAT_SEL_COMPOSER_DATA_OFFSET_EVENT    0 // 8 bits
+#define UART_FEAT_SEL_COMPOSER_DATA_OFFSET_EN       8 // 1 bit
+#define UART_FEAT_SEL_COMPOSER_DATA_OFFSET_DATA     9 // 8 bits - only if required (e.g. for UART_FEAT_SEL_COMPOSER_USER_DATA)
+
+// enum EVENTS for UART_FEAT_SEL_COMPOSER_DATA_OFFSET_EVENT offset
+#define UART_PACKET_COMPOSER_EVENT_NOW              0
+#define UART_PACKET_COMPOSER_EVENT_EXP_START        1
+#define UART_PACKET_COMPOSER_EVENT_EXP_END          2
+#define UART_PACKET_COMPOSER_EVENT_READ_START       3
+#define UART_PACKET_COMPOSER_EVENT_READ_END         4
+#define UART_PACKET_COMPOSER_EVENT_TRANSFER_START   5
+#define UART_PACKET_COMPOSER_EVENT_TRANSFER_END     6
 
 // FPGA_REG_USER_OUTPUT - WRITE Offsets
 #define USER_OUTPUT_WR_OFFSET_VALUE             0
@@ -219,17 +281,20 @@
 #define USER_OUTPUT_RD_OFFSET_VALUE_MASK        16
 
 // FPGA_REG_TRIG_CTRL - WRITE Offsets
-#define	TRIG_CTRL_WR_OFFSET_SOURCE              0   	       
+#define	TRIG_CTRL_WR_OFFSET_SOURCE              0   // 4 lower bits of trig_source[3:0]
 #define	TRIG_CTRL_WR_OFFSET_ACTIV   	        4
 #define	TRIG_CTRL_WR_OFFSET_MODE   	            7
 #define	TRIG_CTRL_WR_OFFSET_OVERLAP  	        8
 #define	TRIG_CTRL_WR_OFFSET_SOFT   	            10
+#define	TRIG_CTRL_WR_OFFSET_SOURCE_1            11  // 2 higer bits of trig_source[5:4]
 
 // FPGA_REG_TRIG_CTRL - READ Offsets
-#define	TRIG_CTRL_RD_OFFSET_SOURCE              0   	       
+#define	TRIG_CTRL_RD_OFFSET_SOURCE              0
 #define	TRIG_CTRL_RD_OFFSET_ACTIV   	        4
 #define	TRIG_CTRL_RD_OFFSET_MODE   	            7
 #define	TRIG_CTRL_RD_OFFSET_OVERLAP  	        8
+//SW_TRIG - write only
+#define	TRIG_CTRL_RD_OFFSET_SOURCE_1            11  // 2 higer bits of trig_source[5:4]
 
 // FPGA_REG_TRIG_DELAY - WRITE Offsets
 #define	TRIG_DELAY_WR_OFFSET_VALUE              0   // Delay value 4ns increment - 29 bits
@@ -291,12 +356,12 @@
 #define HEADER_CFG_OFFSET_SIZE                  0
 
 // FPGA_REG_DMA1_BUF_POOL_CTRL - WRITE Offsets
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_FRAME_NUM  0
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_BUFFER_ID  14
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_INT        26
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_REQUEUE    27
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_FLUSH      28
-#define DMA1_BUF_POOL_CTRL_WR_OFFSET_ADD        29
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_FRAME_NUM  0   // 14 bits
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_BUFFER_ID  14  // 12 bits
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_INT        26  // 1 bit
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_REQUEUE    27  // 1 bit
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_FLUSH      28  // 1 bit
+#define DMA1_BUF_POOL_CTRL_WR_OFFSET_ADD        29  // 1 bit
 
 // FPGA_REG_DMA1_BUF_POOL_CTRL - READ Offsets
 #define DMA1_BUF_POOL_CTRL_RD_OFFSET_FULL       0
@@ -325,14 +390,12 @@
 #define LUT_CFG_WR_OFFSET_EN                    0
 
 // FPGA_REG_COLCOR_CFG - WRITE Offset
-#define COLCOR_CFG_WR_OFFSET_EN                 0
-#define COLCOR_CFG_WR_OFFSET_RAND_EN            1
-#define COLCOR_CFG_WR_OFFSET_ADDER_SHIFT        2
-#define COLCOR_CFG_WR_OFFSET_ADDRES_RECYCLE     5
+#define COLCOR_CFG_WR_OFFSET_MAX_COUNT          0   // 13 bits
 
 // FPGA_REG_COLCOR_BRAM_ADDR - WRITE Offset
-#define COLCOR_BRAM_ADDR_WR_OFFSET_ADDRA        0
-#define COLCOR_BRAM_ADDR_WR_OFFSET_SEL          11
+#define COLCOR_BRAM_ADDR_WR_OFFSET_ADDRA        0   // 11 bits
+#define COLCOR_BRAM_ADDR_WR_OFFSET_SEL          11  // 7 bits
+#define COLCOR_BRAM_ADDR_WR_OFFSET_ADDRA_2      19  // 2 bits - bits [12:11] of ADDRA
 
 // FPGA_REG_COLCOR_BRAM_DAT - WRITE Offset
 #define COLCOR_BRAM_DAT_WR_OFFSET_ADD           0
@@ -422,6 +485,57 @@
 #define PLTR_CTRL_VOLTAGE_MIN           0.0
 #define PLTR_CTRL_VOLTAGE_MAX           2.5
 
+// eMMC
+#define FPGA_WR_MMC_CMD_OFFSET_ADDR     0
+#define FPGA_WR_MMC_CMD_OFFSET_CMD      28
+
+#define MMC_API_CMD_RESET               0
+#define MMC_API_CMD_IDLE                1
+#define MMC_API_CMD_WRITE_TRANS         2
+#define MMC_API_CMD_READ_TRANS          3
+#define MMC_API_CMD_READ_DATA           4
+#define MMC_API_CMD_READ_COUNT          5
+#define MMC_API_CMD_COMMAND				6
+
+// FrameBuffer Status
+//WR
+#define FPGA_WR_FRAMEBUF_CFG_OFFSET_ENABLE          0   // 1 bit
+#define FPGA_WR_FRAMEBUF_CFG_OFFSET_AFULL           1   // 26 bits
+//RD
+#define FPGA_RD_FRAMEBUF_CFG_OFFSET_ENABLE          0   // 1 bit
+#define FPGA_RD_FRAMEBUF_CFG_OFFSET_INIT            1   // 1 bit
+#define FPGA_RD_FRAMEBUF_CFG_OFFSET_VERSION         29  // 3 bits
+
+// FPGA_REG_EXP_PULSE_OUT_CFG - WRITE Offset
+#define FPGA_REG_EXP_PULSE_OUT_CFG_WR_OFFSET_WIDTH  0   // 8 bits
+// FPGA_REG_EXP_PULSE_OUT_CFG - READ Offsets
+#define FPGA_REG_EXP_PULSE_OUT_CFG_RD_OFFSET_WIDTH  0   // 8 bits
+
+// FPGA_REG_IO_DEBOUNCE - WRITE Offset
+#define FPGA_REG_IO_DEBOUNCE_WR_OFFSET_TIME         0   // 20 bits
+#define FPGA_REG_IO_DEBOUNCE_WR_OFFSET_TIME_SEL     23  // 1 bit
+#define FPGA_REG_IO_DEBOUNCE_WR_OFFSET_TIME_WR      24  // 1 bit
+#define FPGA_REG_IO_DEBOUNCE_WR_OFFSET_TIME_ENABLE  25  // 1 bit
+//#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_CAP          26  // 1 bit
+// FPGA_REG_IO_DEBOUNCE - READ Offsets
+#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_TIME         0   // 20 bits
+#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_TIME_SEL     23  // 1 bit
+#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_TIME_WR      24  // 1 bit
+#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_TIME_ENABLE  25  // 1 bit
+#define FPGA_REG_IO_DEBOUNCE_RD_OFFSET_CAP          26  // 1 bit
+
+// FPGA_REG_DEPADDER_CFG - WRITE Offset
+#define FPGA_REG_DEPADDER_CFG_WR_OFFSET_VALUE       0   // 16 bits
+#define FPGA_REG_DEPADDER_CFG_WR_OFFSET_SELECTOR    16  // 8 bits
+#define FPGA_REG_DEPADDER_CFG_WR_OFFSET_WR          24  // 1 bit
+// FPGA_REG_DEPADDER_CFG - READ Offsets
+#define FPGA_REG_DEPADDER_CFG_RD_OFFSET_VALUE       0   // 16 bits
+#define FPGA_REG_DEPADDER_CFG_RD_OFFSET_SELECTOR    16  // 8 bits
+// SELECTOR values
+#define DEPADDER_CFG_SEL_ENABLE                     0
+#define DEPADDER_CFG_SEL_PIX_SHIFT                  1
+#define DEPADDER_CFG_SEL_LINE_DATA_MAX              2
+
 //-------------------------------------------------------------------------------------------------------------------
 // FPGA Register Variable Enumerators
 //-------------------------------------------------------------------------------------------------------------------
@@ -431,20 +545,24 @@
 #define PCIE_COMMON_COLCOR_RELOAD_COUNT_MIN         1
 #define PCIE_COMMON_COLCOR_RELOAD_COUNT_MAX         1536
 #define PCIE_COMMON_COLCOR_32x2048_RELOAD_COUNT_MAX 2048
+#define PCIE_COMMON_COLCOR_32x3072_RELOAD_COUNT_MAX 3072
 // ColCor Column Selector is specified by individual pixel
 #define PCIE_COMMON_COLCOR_COLUMN_MIN           0
 #define PCIE_COMMON_COLCOR_COLUMN_MAX           (1536*8-1)
 #define PCIE_COMMON_COLCOR_32x2048_COLUMN_MAX   (PCIE_COMMON_COLCOR_32x2048_RELOAD_COUNT_MAX*8-1)
+#define PCIE_COMMON_COLCOR_32x3072_COLUMN_MAX   (PCIE_COMMON_COLCOR_32x3072_RELOAD_COUNT_MAX*8-1)
 
 // RowCor ranges
 #define ROWCOR_ROW_MIN              0
 #define ROWCOR_ROW_MAX              6144
+#define ROWCOR_ROW_MAX_BRAM_14336   7168
 
 #define ROWCOR_LINE_WIDTH_MIN       0
 #define ROWCOR_LINE_WIDTH_MAX       2047*8
 
 #define ROWCOR_ROW_RELOAD_MIN       0
 #define ROWCOR_ROW_RELOAD_MAX       12288
+#define ROWCOR_ROW_RELOAD_MAX_BRAM_14336    14336
 
 // TriggerDelay constants
 #define TRIG_DELAY_FPGA_MIN                     0.080   // 0.080 us
@@ -466,9 +584,21 @@
 	#define TIMESTAMP_RESET_CTRL_SOURCE_LINE10	10
 	#define TIMESTAMP_RESET_CTRL_SOURCE_LINE11	11
 	#define TIMESTAMP_RESET_CTRL_SOURCE_LINE12	12
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE13	13
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE14	14
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE15	15
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE16	16
 	#define TIMESTAMP_RESET_CTRL_SOURCE_TRIGGER	 17
 	#define TIMESTAMP_RESET_CTRL_SOURCE_EXP_ACTIVE  18
-	#define TIMESTAMP_RESET_CTRL_SOURCE_FRAME_READ 19
+    #define TIMESTAMP_RESET_CTRL_SOURCE_FRAME_READ 19
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE17	20
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE18	21
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE19	22
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE20	23
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE21	24
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE22	25
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE23	26
+    #define TIMESTAMP_RESET_CTRL_SOURCE_LINE24	27
 #define TIMESTAMP_RESET_CTRL_SWRST_OFFSET	7
 #define TIMESTAMP_RESET_CTRL_SWRST_SIZE  	1
 #define TIMESTAMP_RESET_CTRL_INVERTER_OFFSET	8
@@ -477,6 +607,33 @@
 #define TIMESTAMP_RESET_CTRL_OPMODE_SIZE  	1
 #define TIMESTAMP_RESET_CTRL_ARM_OFFSET	12
 #define TIMESTAMP_RESET_CTRL_ARM_SIZE  	1
+
+// MX-X4G3-FF Diagnostics register
+#define FPGA_REG_MX_X4G3_FF_DIAG                        86
+// FPGA_REG_MX_X4G3_FF_DIAG - WRITE Offsets
+#define FPGA_REG_MX_X4G3_FF_DIAG_WR_OFFSET_SELECTOR     24  // 8 bits
+// FPGA_REG_MX_X4G3_FF_DIAG - READ Offsets
+#define FPGA_REG_MX_X4G3_FF_DIAG_RD_OFFSET_DATA         0   // 16 bits
+#define FPGA_REG_MX_X4G3_FF_DIAG_RD_OFFSET_SELECTOR     24  // 8 bits
+// VOltages, Currents
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH1_I          0
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH1_V          1
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH2_I          2
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH2_V          3
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH3_I          4
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH3_V          5
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH4_I          6
+#define MX_X4G3_FF_DIAG_SELECTOR_PAC1934_CH4_V          7
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VADJ_CH1       8
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VADJ_CH2       9
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VADJ_CH3       10
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VADJ_CH4       11
+// Temperatures
+#define MX_X4G3_FF_DIAG_SELECTOR_TMP112                 64
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VTEMP_CH1      65
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VTEMP_CH2      66
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VTEMP_CH3      67
+#define MX_X4G3_FF_DIAG_SELECTOR_ADS1115_VTEMP_CH4      68
 
 //-------------------------------------------------------------------------------------------------------------------
 // IO Selector, Source, Mode, Inverter
@@ -506,8 +663,8 @@ typedef enum
 	PCIE_COMM_LINE_SOURCE_PCIE_SPEED         = 7,  // Link status 1
 	PCIE_COMM_LINE_SOURCE_PCIE_LANE          = 8,  // Link status 2
 	PCIE_COMM_LINE_SOURCE_FRAME_BUF_FULL     = 9,  // Frame buffer full
-	PCIE_COMM_LINE_SOURCE_RSV2               = 10, // Reserved
-	PCIE_COMM_LINE_SOURCE_RSV3               = 11, // Reserved
+	PCIE_COMM_LINE_SOURCE_IMG_EXP_FIRST_ROW  = 10, // Exposure active of the first row
+    PCIE_COMM_LINE_SOURCE_IMG_EXP_ALL_ROWS   = 11, // Exposure active of the all rows
 	PCIE_COMM_LINE_SOURCE_IO_STATUS_1        = 12, // IO status
 	PCIE_COMM_LINE_SOURCE_IO_STATUS_2        = 13, 
 	PCIE_COMM_LINE_SOURCE_IO_STATUS_3        = 14, 
@@ -528,6 +685,19 @@ typedef enum
 	PCIE_COMM_LINE_SOURCE_USER_OUTPUT6       = 29, 
 	PCIE_COMM_LINE_SOURCE_USER_OUTPUT7       = 30, 
 	PCIE_COMM_LINE_SOURCE_USER_OUTPUT8       = 31, 
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_13      = 32,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_14      = 33,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_15      = 34,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_16      = 35,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_17      = 36,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_18      = 37,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_19      = 38,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_20      = 39,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_21      = 40,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_22      = 41,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_23      = 42,
+    PCIE_COMM_LINE_SOURCE_IO_STATUS_24      = 43,
+    PCIE_COMM_LINE_SOURCE_EXPOSURE_PULSE    = 44,
 } PCIeCommonLineSource;
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -543,23 +713,36 @@ typedef enum
 	PCIE_COMM_TRIG_SELECT_EXP_ACTIVE         = 3, // Active Exposure time will be defined by the trigger event,
     PCIE_COMM_TRIG_SELECT_EXP_START          = 4, // Exposure of one Frame will be started upon trigger event,
     PCIE_COMM_TRIG_SELECT_MULTI_SLOPE_CHANGE = 5, // Multi Slope Exposure phase will be changed
+	PCIE_COMM_TRIG_SELECT_DUAL_EXP_HDR_INTERLINE = 6, // Dual exposure HDR interline (e.g. CMV50000)
 } PCIeCommonTrigSelect;
 
 typedef enum
 {
-    PCIE_COMM_TRIG_SOURCE_SOFT             =0, //
-	PCIE_COMM_TRIG_SOURCE_LINE0            =1, //
-	PCIE_COMM_TRIG_SOURCE_LINE1            =2, //
-	PCIE_COMM_TRIG_SOURCE_LINE2            =3, //
-	PCIE_COMM_TRIG_SOURCE_LINE3            =4, //
-	PCIE_COMM_TRIG_SOURCE_LINE4            =5, //
-	PCIE_COMM_TRIG_SOURCE_LINE5            =6, //
-	PCIE_COMM_TRIG_SOURCE_LINE6            =7, //
-	PCIE_COMM_TRIG_SOURCE_LINE7            =8, //
-	PCIE_COMM_TRIG_SOURCE_LINE8            =9, //
-	PCIE_COMM_TRIG_SOURCE_LINE9            =10,//
-	PCIE_COMM_TRIG_SOURCE_LINE10           =11,//
-	PCIE_COMM_TRIG_SOURCE_LINE11           =12,//
+    PCIE_COMM_TRIG_SOURCE_SOFT      =0, //
+	PCIE_COMM_TRIG_SOURCE_LINE0     =1, //
+	PCIE_COMM_TRIG_SOURCE_LINE1     =2, //
+	PCIE_COMM_TRIG_SOURCE_LINE2     =3, //
+	PCIE_COMM_TRIG_SOURCE_LINE3     =4, //
+	PCIE_COMM_TRIG_SOURCE_LINE4     =5, //
+	PCIE_COMM_TRIG_SOURCE_LINE5     =6, //
+	PCIE_COMM_TRIG_SOURCE_LINE6     =7, //
+	PCIE_COMM_TRIG_SOURCE_LINE7     =8, //
+	PCIE_COMM_TRIG_SOURCE_LINE8     =9, //
+	PCIE_COMM_TRIG_SOURCE_LINE9     =10,//
+	PCIE_COMM_TRIG_SOURCE_LINE10    =11,//
+    PCIE_COMM_TRIG_SOURCE_LINE11    = 12,//
+    PCIE_COMM_TRIG_SOURCE_LINE12    = 13,//
+    PCIE_COMM_TRIG_SOURCE_LINE13    = 14,//
+    PCIE_COMM_TRIG_SOURCE_LINE14    = 15,//
+    PCIE_COMM_TRIG_SOURCE_LINE15    = 16,//
+    PCIE_COMM_TRIG_SOURCE_LINE16    = 17,//
+    PCIE_COMM_TRIG_SOURCE_LINE17    = 18,//
+    PCIE_COMM_TRIG_SOURCE_LINE18    = 19,//
+    PCIE_COMM_TRIG_SOURCE_LINE19    = 20,//
+    PCIE_COMM_TRIG_SOURCE_LINE20    = 21,//
+    PCIE_COMM_TRIG_SOURCE_LINE21    = 22,//
+    PCIE_COMM_TRIG_SOURCE_LINE22    = 23,//
+    PCIE_COMM_TRIG_SOURCE_LINE23    = 24,//
 } PcieCommonTrigSource;
 
 typedef enum
@@ -600,6 +783,9 @@ typedef enum
     PCIE_COMM_PACK_MONO12P      = 9,
     PCIE_COMM_PACK_MONO9P       = 10,
     PCIE_COMM_PACK_MONO11P      = 11,
+    PCIE_COMM_PACK_MONO14       = 12,   // 16 bit output - [x x b13 b12 b11 ... b0]
+    PCIE_COMM_PACK_MONO14MSB    = 13,   // 16 bit output - [b13 b12 ... b1 b0 x x]
+    PCIE_COMM_PACK_MONO14P      = 14,   // 14 bit output - [b13 b12 ... b1 b0]
 } PCIeCommonPackerMode;
 
 

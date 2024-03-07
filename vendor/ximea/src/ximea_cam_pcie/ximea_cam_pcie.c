@@ -1,3 +1,15 @@
+/*
+ * XIMEA PCIe camera kernel driver.
+ *
+ * Copyright (C) 2015-2022 XIMEA, s.r.o.
+ *
+ * Author: Igor Kuzmin
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include <linux/cdev.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
@@ -21,6 +33,8 @@
 	#include <linux/sched.h>
 #endif
 
+#define SUPPORT_FOR_LEGACY_PCIE_YEAR_2015_ENABLED 0 // =1 if legacy PCIe devices (e.g. golden firmware from 2015) should be enumerated
+
 #include "pcie_common_fpga_regs.h"
 #ifdef HAVE_GPUDIRECT
 #include "nv-p2p.h"
@@ -40,11 +54,16 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0)
 	#define page_cache_release(page) put_page(page)
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,168) && LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0)
+	#define get_user_pages(a, b, c, d, e, f, g, h) get_user_pages(a, b, c, d, e ? FOLL_WRITE : 0, g, h)
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0)
 	#if LINUX_VERSION_CODE < KERNEL_VERSION(4,9,0)
 		#define get_user_pages(a, b, c, d, e, f, g, h) get_user_pages(c, d, e, f, g, h)
-	#else
+	#elif LINUX_VERSION_CODE < KERNEL_VERSION(6,5,0)
 		#define get_user_pages(a, b, c, d, e, f, g, h) get_user_pages(c, d, e ? FOLL_WRITE : 0, g, h)
+	#else
+		#define get_user_pages(a, b, c, d, e, f, g, h) get_user_pages(c, d, e ? FOLL_WRITE : 0, g)
 	#endif
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,8,0)
@@ -56,6 +75,16 @@
 	#define dma_map_sg_attrs(a, b, c, d, e) dma_map_sg_attrs(a, b, c, d, *(e))
 	#define dma_unmap_single_attrs(a, b, c, d, e) dma_unmap_single_attrs(a, b, c, d, *(e))
 	#define dma_unmap_sg_attrs(a, b, c, d, e) dma_unmap_sg_attrs(a, b, c, d, *(e))
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+	#define mmap_sem mmap_lock
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,18,0)
+	#define pci_set_dma_mask(a, b) dma_set_mask(&(a)->dev, b)
+	#define pci_set_consistent_dma_mask(a, b) dma_set_coherent_mask(&(a)->dev, b)
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+	#define class_create(a, b) class_create(b)
 #endif
 
 #define DRV_NAME "ximea_cam_pcie"
@@ -69,7 +98,9 @@ MODULE_PARM_DESC(MAX_NUM_BUF, "Maximum number of buffers per device");
 #define MAX_DEVICES 100
 static atomic_t minors[MAX_DEVICES];
 static dev_t chrdev;
+#ifndef HAVE_GPUDIRECT
 static struct class *devclass;
+#endif
 
 #ifdef HAVE_GPUDIRECT
 struct sh_dev;
@@ -107,8 +138,8 @@ struct sh_dev {
 	struct scatterlist **sgs;
 	enum dma_data_direction *sg_dir;
 	u32 *lockedpages;
-#ifdef HAVE_GPUDIRECT
 	u64 *virtaddr;
+#ifdef HAVE_GPUDIRECT
 	struct gpudirect_ctx *unlock_ctx;
 #endif
 	unsigned long *physaddr;
@@ -132,10 +163,9 @@ void unlock_mem(struct sh_dev *sh, unsigned long index) {
 	dma_set_attr(DMA_ATTR_SKIP_CPU_SYNC, &attrs);
 
 #ifdef HAVE_GPUDIRECT
-	if(sh->virtaddr[index]) { //GPU memory
+	if(!sh->sgs[index]) { //GPU memory
 		if(nvidia_p2p_put_pages(0, 0, sh->virtaddr[index], (nvidia_p2p_page_table_t*)sh->mappedpages[index]))
 			printk(KERN_DEBUG DRV_NAME ": nvidia_p2p_put_pages failed!\n");
-		sh->virtaddr[index] = 0;
 	} else { //CPU memory
 #endif
 	dma_unmap_sg_attrs(&sh->pci_dev->dev, sh->sgs[index], sh->lockedpages[index], sh->sg_dir[index], &attrs);
@@ -145,6 +175,7 @@ void unlock_mem(struct sh_dev *sh, unsigned long index) {
 		page_cache_release(sh->mappedpages[index][i]);
 	}
 	vfree(sh->sgs[index]);
+	sh->sgs[index] = 0;
 	vfree(sh->mappedpages[index]);
 #ifdef HAVE_GPUDIRECT
 	}
@@ -169,12 +200,11 @@ void release_mem(struct sh_dev *sh, unsigned long index) {
 static void gpudirect_free_callback(void *param) {
 	struct gpudirect_ctx *ctx = param;
 	down(&ctx->sh->memsem);
-	if(ctx->sh->virtaddr[ctx->index]) {
+	if(ctx->sh->lockedpages[ctx->index] && !ctx->sh->sgs[ctx->index]) {
 		printk(KERN_DEBUG DRV_NAME ": automatically stopping DMA on GPU memory deallocation\n");
 		if(!PCIe_AbortStreaming(ctx->sh))
 			printk(KERN_DEBUG DRV_NAME ": PCIe_AbortStreaming failed!\n");
 		nvidia_p2p_free_page_table((nvidia_p2p_page_table_t*)ctx->sh->mappedpages[ctx->index]);
-		ctx->sh->virtaddr[ctx->index] = 0;
 		ctx->sh->lockedpages[ctx->index] = 0;
 	} else
 		printk(KERN_DEBUG DRV_NAME ": spurious gpudirect_free_callback\n");
@@ -199,7 +229,7 @@ static long ximea_cam_pcie_ioctl(struct file *file, unsigned int cmd, unsigned l
 	DEFINE_DMA_ATTRS(attrs);
 	dma_set_attr(DMA_ATTR_SKIP_CPU_SYNC, &attrs);
 
-	if(!(file->f_mode & FMODE_READ) && cmd != XIMEA_CAM_PCIE_IOCREADREG)
+	if(!(file->f_mode & FMODE_READ) && cmd != XIMEA_CAM_PCIE_IOCREADREG && cmd != XIMEA_CAM_PCIE_IOCGETBUF)
 		return -EPERM;
 
 	switch(cmd) {
@@ -329,6 +359,7 @@ static long ximea_cam_pcie_ioctl(struct file *file, unsigned int cmd, unsigned l
 					if(copy_to_user(lockmem.out++, &unlockmem, sizeof(ximea_cam_pcie_unlockmem_args)) != 0) goto LOCK_CLEANUP;
 				}
 			}
+			sh->virtaddr[unlockmem.index] = (unsigned long)lockmem.buffer;
 		} else { //assume GPU memory
 			up_read(&current->mm->mmap_sem);
 #ifdef HAVE_GPUDIRECT
@@ -389,6 +420,7 @@ LOCK_CLEANUP:
 		for(;c>0;c--)
 			page_cache_release(((struct page**)unlockmem.mappedpages)[c-1]);
 		vfree(sh->sgs[unlockmem.index]);
+		sh->sgs[unlockmem.index] = 0;
 		vfree(unlockmem.mappedpages);
 		up(&sh->memsem);
 		break;
@@ -412,6 +444,24 @@ GPULOCK_CLEANUP:
 		up(&sh->memsem);
 		ret = 0;
 		break;
+	case XIMEA_CAM_PCIE_IOCGETBUF:
+		if(copy_from_user(&unlockmem, (void*)arg, sizeof(ximea_cam_pcie_unlockmem_args)) != 0) break;
+
+		if(down_interruptible(&sh->memsem))
+			return -ERESTARTSYS;
+		if(unlockmem.index >= MAX_NUM_BUF || !sh->lockedpages[unlockmem.index]) {
+			up(&sh->memsem);
+			break;
+		}
+		unlockmem.bytes = 0;
+		for(i = 0; i < sh->lockedpages[unlockmem.index]; i++)
+			unlockmem.bytes += sh->sgs[unlockmem.index][i].length;
+		unlockmem.addr = sh->virtaddr[unlockmem.index];
+		up(&sh->memsem);
+
+		if(copy_to_user((void*)arg, &unlockmem, sizeof(ximea_cam_pcie_unlockmem_args)) != 0) break;
+		ret = 0;
+		break;
 	case XIMEA_CAM_PCIE_IOCSYNCMEM4CPU:
 		if(down_interruptible(&sh->memsem))
 			return -ERESTARTSYS;
@@ -421,7 +471,7 @@ GPULOCK_CLEANUP:
 			break;
 		}
 #ifdef HAVE_GPUDIRECT
-		if(!sh->virtaddr[unlockmem.index])
+		if(sh->sgs[unlockmem.index])
 #endif
 		dma_sync_sg_for_cpu(&sh->pci_dev->dev, sh->sgs[unlockmem.index], unlockmem.pages, sh->sg_dir[unlockmem.index]);
 		up(&sh->memsem);
@@ -436,7 +486,7 @@ GPULOCK_CLEANUP:
 			break;
 		}
 #ifdef HAVE_GPUDIRECT
-		if(!sh->virtaddr[unlockmem.index])
+		if(sh->sgs[unlockmem.index])
 #endif
 		dma_sync_sg_for_device(&sh->pci_dev->dev, sh->sgs[unlockmem.index], unlockmem.pages, sh->sg_dir[unlockmem.index]);
 		up(&sh->memsem);
@@ -789,7 +839,9 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	int minor, rc;
 	struct sh_dev *sh = NULL;
 	u8 irq_pin, irq_line;
+#ifndef HAVE_GPUDIRECT
 	struct device *sysdev;
+#endif
 #ifdef HAVE_GPUDIRECT
 	unsigned long i;
 #endif
@@ -816,14 +868,18 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	sh->lockedpages = vzalloc(MAX_NUM_BUF * sizeof(*sh->lockedpages));
 	sh->sgs			= vzalloc(MAX_NUM_BUF * sizeof(*sh->sgs        ));
 	sh->sg_dir		= vzalloc(MAX_NUM_BUF * sizeof(*sh->sg_dir     ));
-#ifdef HAVE_GPUDIRECT
 	sh->virtaddr	= vzalloc(MAX_NUM_BUF * sizeof(*sh->virtaddr   ));
+#ifdef HAVE_GPUDIRECT
 	sh->unlock_ctx	= vzalloc(MAX_NUM_BUF * sizeof(*sh->unlock_ctx ));
 #endif
 	sh->physaddr    = vzalloc(MAX_NUM_BUF * sizeof(*sh->physaddr   ));
 	sh->kernaddr    = vzalloc(MAX_NUM_BUF * sizeof(*sh->kernaddr   ));
 	sh->memsize     = vzalloc(MAX_NUM_BUF * sizeof(*sh->memsize    ));
-	if (!sh->mappedpages || !sh->lockedpages || !sh->physaddr || !sh->kernaddr || !sh->memsize) {
+	if (!sh->mappedpages || !sh->lockedpages || !sh->sgs || !sh->sg_dir || !sh->virtaddr ||
+#ifdef HAVE_GPUDIRECT
+            !sh->unlock_ctx ||
+#endif
+            !sh->physaddr || !sh->kernaddr || !sh->memsize) {
 		printk(KERN_DEBUG "Could not vzalloc()ate memory.\n");
 		rc = -ENOMEM;
 		goto err_enable;
@@ -914,24 +970,27 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	}
 	printk(KERN_DEBUG "Succesfully requested IRQ #%d with dev_id 0x%p\n", sh->irq_line, sh);
 	cdev_init(&sh->cdev, &ximea_cam_pcie_fops);
-	sh->cdev.owner = THIS_MODULE;
 	rc = cdev_add(&sh->cdev, MKDEV(MAJOR(chrdev), minor), 1);
 	if(rc < 0) {
 		printk(KERN_DEBUG "Char dev creation failed\n");
 		goto err_cdev;
 	}
+#ifndef HAVE_GPUDIRECT
 	sysdev = device_create(devclass, &dev->dev, sh->cdev.dev, NULL, "ximea%02d", minor);
 	if(IS_ERR(sysdev)) {
 		rc = PTR_ERR(sysdev);
 		printk(KERN_DEBUG "Sys device creation failed\n");
 		goto err_dev;
 	}
+#endif
 	/* succesfully took the device */
 	rc = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
 	goto end;
+#ifndef HAVE_GPUDIRECT
 err_dev:
 	cdev_del(&sh->cdev);
+#endif
 err_cdev:
 	/* free allocated irq */
 	free_irq(sh->irq_line, (void *)sh);
@@ -953,8 +1012,8 @@ err_enable:
 	vfree(sh->physaddr);
 #ifdef HAVE_GPUDIRECT
 	vfree(sh->unlock_ctx);
-	vfree(sh->virtaddr);
 #endif
+	vfree(sh->virtaddr);
 	vfree(sh->sg_dir);
 	vfree(sh->sgs);
 	vfree(sh->lockedpages);
@@ -985,7 +1044,9 @@ static void __devexit remove(struct pci_dev *dev)
 	}
 	/* remove character device */
 	minor = MINOR(sh->cdev.dev);
+#ifndef HAVE_GPUDIRECT
 	device_destroy(devclass, sh->cdev.dev);
+#endif
 	cdev_del(&sh->cdev);
 	/* free IRQ
 	 * @see LDD3 page 279
@@ -1009,8 +1070,8 @@ static void __devexit remove(struct pci_dev *dev)
 	vfree(sh->physaddr);
 #ifdef HAVE_GPUDIRECT
 	vfree(sh->unlock_ctx);
-	vfree(sh->virtaddr);
 #endif
+	vfree(sh->virtaddr);
 	vfree(sh->sg_dir);
 	vfree(sh->sgs);
 	vfree(sh->lockedpages);
@@ -1020,7 +1081,9 @@ static void __devexit remove(struct pci_dev *dev)
 }
 
 static const struct pci_device_id ids[] = {
+#if SUPPORT_FOR_LEGACY_PCIE_YEAR_2015_ENABLED
 	{ PCI_DEVICE(0x1556, 0x1100), }, //PLDA ID
+#endif
 	{ PCI_DEVICE(0xdeda, 0x4001), },
 	{ PCI_DEVICE(0xdeda, 0x4002), },
 	{ PCI_DEVICE(0xdeda, 0x4003), },
@@ -1065,12 +1128,14 @@ static int __init ximea_cam_pcie_init(void)
 		printk(KERN_DEBUG "Char dev allocation failed\n");
 		goto exit_chrdev;
 	}
+#ifndef HAVE_GPUDIRECT
 	devclass = class_create(THIS_MODULE, DRV_NAME);
 	if(IS_ERR(devclass)) {
 		printk(KERN_DEBUG "Class creation failed\n");
 		rc = PTR_ERR(devclass);
 		goto exit_class;
 	}
+#endif
 	for(i = 0; i < MAX_DEVICES; i++)
 		atomic_set(&minors[i], 1);
 	/* register this driver with the PCI bus driver */
@@ -1080,8 +1145,10 @@ static int __init ximea_cam_pcie_init(void)
 	rc = 0;
 	goto exit_norm;
 exit_pci:
+#ifndef HAVE_GPUDIRECT
 	class_destroy(devclass);
 exit_class:
+#endif
 	unregister_chrdev_region(chrdev, MAX_DEVICES);
 exit_chrdev:
 exit_norm:
@@ -1096,7 +1163,9 @@ static void __exit ximea_cam_pcie_exit(void)
 	printk(KERN_DEBUG DRV_NAME " exit()\n");
 	/* unregister this driver from the PCI bus driver */
 	pci_unregister_driver(&pci_driver);
+#ifndef HAVE_GPUDIRECT
 	class_destroy(devclass);
+#endif
 	unregister_chrdev_region(chrdev, MAX_DEVICES);
 }
 
