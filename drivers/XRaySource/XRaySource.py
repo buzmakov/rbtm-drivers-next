@@ -28,7 +28,11 @@ class HWSource(object):
         self.device_id = None
         self.tube_name = None
 
-        self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
+        if mock:
+            self.serial_port = None
+        else:
+            self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
+            
         logging.debug('Source.__init__ finished.')
         atexit.register(self.close)
 

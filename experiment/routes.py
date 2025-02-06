@@ -8,7 +8,7 @@ from .constants import FRAME_PNG_FILENAME, STORAGE_EXP_START_URI, SOMEONE_STOP_M
 bp_main = Blueprint('main', __name__, url_prefix='/')
 bp_tomograph = Blueprint('tomograph', __name__, url_prefix='/tomograph/<int:tomo_num>')
 
-tomograph = Tomograph()
+tomograph = Tomograph(mock=True)
 
 
 @bp_tomograph.after_request
