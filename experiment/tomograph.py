@@ -6,16 +6,11 @@ from .experiment import ModExpError, Experiment, create_event, send_message_to_s
 from .constants import SUCCESSFUL_STOP_MSG
 from drivers.Tomograph.Tomograph import HWTomograph
 
-import logging
-import sys
-from autologging import traced, TRACE
-
-logging.basicConfig(
-    level=TRACE, stream=sys.stdout,
-    format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+from autologging import traced
+from . import tomo_logger
 
 
-# @traced
+@traced(tomo_logger)
 class Tomograph:
 
     def __init__(self, mock = False):

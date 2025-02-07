@@ -1,5 +1,7 @@
 from flask import Flask
-from . import routes
+from . import routes, tomologger
+
+tomo_logger = tomologger.tomologger
 
 
 def create_app():
@@ -9,3 +11,5 @@ def create_app():
     app.register_blueprint(routes.bp_tomograph)
 
     return app
+
+# define autologger

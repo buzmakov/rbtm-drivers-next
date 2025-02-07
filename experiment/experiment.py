@@ -11,12 +11,8 @@ import matplotlib.pyplot as plt
 from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
 from . import tomograph
 
-import sys
-# from autologging import traced, TRACE
-
-logging.basicConfig(
-    level=logging.DEBUG, stream=sys.stdout,
-    format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
+from autologging import traced
+from . import tomo_logger
 
 
 class ModExpError(Exception):
@@ -66,7 +62,7 @@ def create_event(event_type, exp_id, MoF, exception_message='', error=''):
     return None
 
 
-# @traced
+@traced(tomo_logger)
 class Experiment:
     def __init__(self, _tomograph, exp_param):
         self.tomograph: tomograph.Tomograph = _tomograph
@@ -129,8 +125,9 @@ class Experiment:
 
         self.tomograph.move_back()
         self.tomograph.open_shutter(0)
-        for current_angle in exp_angles:
+        for iangle, current_angle in enumerate(exp_angles):
             # self.check_source()
+            tomo_logger.info(f'Collecting frame {iangle}/{len(exp_angles)}')
             self.tomograph.set_angle(float(current_angle))
 
             for j in range(0, self.DATA_count_per_step):
