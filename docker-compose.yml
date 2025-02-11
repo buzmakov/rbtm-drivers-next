@@ -9,7 +9,7 @@ services:
     volumes:
       - "/dev/ximc/0000037A:/dev/ximc/0000037A"
       - "/dev/ximc/00000271:/dev/ximc/00000271"
-      - "./logs:/drivers/experiment/logs"
+      - "./logs:/drivers/logs"
     devices:
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM1:/dev/ttyACM1"
@@ -30,7 +30,7 @@ services:
     volumes:
       - "/dev/ximc/0000037A:/dev/ximc/0000037A"
       - "/dev/ximc/00000271:/dev/ximc/00000271"
-      - "./logs:/drivers/experiment/logs"
+      - "./logs:/drivers/logs"
     devices:
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM1:/dev/ttyACM1"

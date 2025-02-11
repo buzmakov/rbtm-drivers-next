@@ -62,7 +62,7 @@ def create_event(event_type, exp_id, MoF, exception_message='', error=''):
     return None
 
 
-@traced(tomo_logger)
+@traced(tomo_logger.logger)
 class Experiment:
     def __init__(self, _tomograph, exp_param):
         self.tomograph: tomograph.Tomograph = _tomograph

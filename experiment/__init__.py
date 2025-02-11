@@ -1,7 +1,11 @@
 from flask import Flask
-from . import routes, tomologger
 
+from . import tomologger
 tomo_logger = tomologger.tomologger
+
+from . import routes
+
+
 
 
 def create_app():
