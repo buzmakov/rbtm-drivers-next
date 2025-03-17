@@ -10,7 +10,7 @@ WORKDIR /drivers
 
 RUN python -m pip install -r requirements.txt
 
-COPY . /drivers/
+COPY . /drivers
 RUN ln -s /drivers/vendor/ximea/include /usr/include/m3api
 RUN ln -s /drivers/vendor/ximea/api/X64/libm3api.so* /usr/lib/ &&\
     ln -s /drivers/vendor/ximea/api/X64/libm3api.so.2 /usr/lib/libm3api.so &&\
@@ -27,5 +27,5 @@ EXPOSE 5001
 # RUN chown -R robotom /drivers
 # USER robotom
 
-CMD FLASK_DEBUG=1 FLASK_APP=experiment flask run --port=5001 --host=0.0.0.0 --no-reload
+CMD ["waitress-serve", "--port=5001", "--host=0.0.0.0", "experiment:app"]
 # RUN ls -la /dev/tty*
