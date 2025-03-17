@@ -10,7 +10,7 @@ from autologging import traced
 from . import tomo_logger
 
 
-@traced(tomo_logger)
+@traced(tomo_logger.logger)
 class Tomograph:
 
     def __init__(self, mock = False):
