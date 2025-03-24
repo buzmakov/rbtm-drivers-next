@@ -3,6 +3,7 @@ import datetime
 import os
 from autologging import traced, TRACE
 
+
 class TomoLogger:
     def __init__(self):
         self.log_dir = "logs"
@@ -10,11 +11,11 @@ class TomoLogger:
             os.makedirs(self.log_dir)
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"log_{timestamp}.log"
+        log_filename = f"log_{timestamp}.hw.log"
         self.log_path = os.path.join(self.log_dir, log_filename)
 
         # Create logger
-        self.logger = logging.getLogger('TomoLogger')
+        self.logger = logging.getLogger('HWTomoLogger')
         self.logger.setLevel(TRACE)
 
         # Create file handler

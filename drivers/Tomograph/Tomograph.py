@@ -13,8 +13,10 @@ from ..utils import get_shutter_config, get_source_config, \
 #     level=TRACE, stream=sys.stdout,
 #     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
+from autologging import traced
+from .. import tomo_logger
 
-# @traced
+@traced(tomo_logger.logger)
 class HWTomograph(object):
     def __init__(self, mock=False):
 

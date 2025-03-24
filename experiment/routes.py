@@ -1,15 +1,25 @@
 from flask import Blueprint, request, send_file
+
 import threading
 import json
 from .tomograph import Tomograph
 from .experiment import check_and_prepare_exp_parameters, send_to_storage, ModExpError, prepare_send_frame
 from .constants import FRAME_PNG_FILENAME, STORAGE_EXP_START_URI, SOMEONE_STOP_MSG
 
+from . import tomologger
+tomo_logger = tomologger.tomologger
+
 bp_main = Blueprint('main', __name__, url_prefix='/')
 bp_tomograph = Blueprint('tomograph', __name__, url_prefix='/tomograph/<int:tomo_num>')
 
 tomograph = Tomograph(mock=True)
 
+@bp_tomograph.before_request
+@bp_main.before_request
+def log_request_info():
+    # tomo_logger.logger.info('Headers: %s', request.headers)
+    # tomo_logger.logger.info('Body: %s', request.get_data())
+    tomo_logger.logger.info('Path: %s', request.path)
 
 @bp_tomograph.after_request
 def after_request(response):

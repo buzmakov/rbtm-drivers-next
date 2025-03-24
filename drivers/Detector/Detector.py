@@ -1,4 +1,4 @@
-import logging
+# import logging
 import sys
 
 #check os
@@ -18,16 +18,19 @@ import atexit
 #     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
 
 
-# @traced
+from autologging import traced
+from .. import tomo_logger
+
+@traced(tomo_logger.logger)
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
-            self.cam.set_debug_level("XI_DL_DISABLED")
+            self.cam.set_debug_level("XI_DL_TRACE")
             self.cam.open_device()
         except xiapi.Xi_error as err:
-            logging.error("Detector.init() failed " + str(err))
+            tomo_logger.logger.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
 
         atexit.register(self.close)
@@ -43,14 +46,14 @@ class HWDetector(object):
             # TODO: add waiting for cooling
 
         except xiapi.Xi_error as err:
-            logging.error("Detector.init() failed " + str(err))
+            tomo_logger.logger.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
 
     def close(self):
         try:
             self.cam.close_device()
         except xiapi.Xi_error as err:
-            logging.error("Detector.close() failed " + str(err))
+            tomo_logger.logger.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
 
     def set_gain(self, gain):
@@ -87,7 +90,7 @@ class HWDetector(object):
             self.cam.stop_acquisition()
 
         except xiapi.Xi_error as err:
-            logging.error("Detector.get_frame() failed " + str(err))
+            tomo_logger.logger.error("Detector.get_frame() failed " + str(err))
             raise RuntimeError("Detector.get_frame() failed " + str(err))
 
         return data

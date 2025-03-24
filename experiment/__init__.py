@@ -5,9 +5,6 @@ tomo_logger = tomologger.tomologger
 
 from . import routes
 
-
-
-
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
 
@@ -15,5 +12,3 @@ def create_app():
     app.register_blueprint(routes.bp_tomograph)
 
     return app
-
-# define autologger
