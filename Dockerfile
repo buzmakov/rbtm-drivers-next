@@ -10,13 +10,19 @@ WORKDIR /drivers
 
 RUN python -m pip install -r requirements.txt
 
-COPY . /drivers
+COPY vendor /drivers/vendor
+
 RUN ln -s /drivers/vendor/ximea/include /usr/include/m3api
 RUN ln -s /drivers/vendor/ximea/api/X64/libm3api.so* /usr/lib/ &&\
     ln -s /drivers/vendor/ximea/api/X64/libm3api.so.2 /usr/lib/libm3api.so &&\
     ldconfig
 
+
 RUN cd /drivers/vendor/ximc-2.10.5/ximc/deb && dpkg -i libximc7_2.10.5-1_amd64.deb libximc7-dev_2.10.5-1_amd64.deb && apt-get install -f
+
+COPY drivers/ /drivers/drivers
+COPY experiment/ /drivers/experiment
+
 
 EXPOSE 5001
 # ARG USER_ID=1000
@@ -27,5 +33,7 @@ EXPOSE 5001
 # RUN chown -R robotom /drivers
 # USER robotom
 
-CMD ["waitress-serve", "--port=5001", "--host=0.0.0.0", "experiment:app"]
+# CMD ["waitress-serve", "--port=5001", "--host=0.0.0.0", "experiment:app"]
+
+CMD waitress-serve --port=5001 --host=0.0.0.0 --call experiment:create_app
 # RUN ls -la /dev/tty*
