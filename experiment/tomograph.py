@@ -9,7 +9,6 @@ from drivers.Tomograph.Tomograph import HWTomograph
 from autologging import traced
 from . import tomo_logger
 
-
 @traced(tomo_logger.logger)
 class Tomograph:
 
@@ -131,7 +130,7 @@ class Tomograph:
     def get_detector_hous_temperature(self):
         return self.hwtomo.detector.get_hous_temp()
 
-    def get_frame(self, exposure: float, with_open_shutter: bool, send_to_webpage=False):
+    def get_frame(self, exposure: float, with_open_shutter=None, send_to_webpage=False):
         """
         :param: exposue: exposition in millisecomds
         """
@@ -140,11 +139,12 @@ class Tomograph:
 
         # if exposure < 0.1 or 16000 < exposure:
         #     raise ModExpError(error=('Exposure must have value from 0.1 to 16000 (given is %.1f )' % exposure))
-
-        if with_open_shutter:
-            self.open_shutter()
-        else:
-            self.close_shutter()
+        
+        if with_open_shutter is not None:
+            if with_open_shutter:
+                self.open_shutter()
+            else:
+                self.close_shutter()
 
         raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
         
@@ -163,12 +163,16 @@ class Tomograph:
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         timestamp = time.time()
         detector_data = {'model': 'Ximea xiRAY'}
+        exposure = self.hwtomo.detector.get_exposure() * 1e3
+        chip_temp = self.hwtomo.detector.get_sensor_temp()
+        hous_temp = self.hwtomo.detector.get_hous_temp()
+        
         image_data = {'timestamp': timestamp,
                       'datetime': current_datetime,
-                      'exposure': self.hwtomo.detector.get_exposure() * 1e3,
+                      'exposure': exposure,
                       'detector': detector_data,
-                      'chip_temp': self.hwtomo.detector.get_sensor_temp(),
-                      'hous_temp': self.hwtomo.detector.get_hous_temp()
+                      'chip_temp': chip_temp,
+                      'hous_temp': hous_temp
                       }         
         object_data = {'present': self.object_present,
                        'angle position': self.get_angle(),
@@ -177,8 +181,11 @@ class Tomograph:
                        }
         shutter_state = json.loads(self.shutter_state())
         shutter_data = {'open': shutter_state['state'] == 'OPEN'}
-        source_data = {'voltage': self.hwtomo.source.get_actual_voltage(),
-                       'current': self.hwtomo.source.get_actual_current()}
+
+        voltage = self.hwtomo.source.get_actual_voltage()
+        current = self.hwtomo.source.get_actual_current()
+        source_data = {'voltage': voltage,
+                       'current': current}
         return json.dumps({'image_data': image_data,
                            'object': object_data,
                            'shutter': shutter_data,

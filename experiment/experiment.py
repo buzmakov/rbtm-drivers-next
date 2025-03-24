@@ -89,10 +89,7 @@ class Experiment:
         self.network_lock = mp.Lock()
         
     def get_and_send_frame(self, exposure, mode):
-        if mode == 'dark':
-            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=False)
-        else:
-            numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=True)
+        numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=None)
         numpy_image_with_metadata['mode'] = mode
         numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
 
