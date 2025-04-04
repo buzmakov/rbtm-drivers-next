@@ -36,7 +36,7 @@ COPY tomograph_server.py /drivers/tomograph_server.py
 # RUN chown -R robotom /drivers
 # USER robotom
 
-# CMD ["waitress-serve", "--port=5001", "--host=0.0.0.0", "experiment:app"]
+# CMD waitress-serve --port=5001 --host=0.0.0.0 --call experiment:create_app
+CMD FLASK_DEBUG=1 FLASK_APP=experiment flask run --port=5001 --host=0.0.0.0 --no-reload
 
-CMD waitress-serve --port=5001 --host=0.0.0.0 --call experiment:create_app
 # RUN ls -la /dev/tty*
