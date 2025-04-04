@@ -5,10 +5,10 @@ import time
 import threading
 import inspect
 import functools
-from experiment.tomologger import tomologger
+
 
 class RedisProxy:
-    def __init__(self, target_class, redis_host='localhost', redis_port=6379, redis_db=0, 
+    def __init__(self, target_class, redis_host='redis', redis_port=6379, redis_db=0, 
                  channel_prefix='redis_proxy', timeout=15, max_init_retries=3):
         self.redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
         self.channel_prefix = channel_prefix
@@ -37,7 +37,7 @@ class RedisProxy:
                         with self.lock:
                             self.response_cache[request_id] = data
                 except Exception as e:
-                    tomologger.error(f"Error processing response: {e}")
+                    print(f"Error processing response: {e}")
     
     def __call__(self, *args, **kwargs):
         # Create a new instance of the proxy
@@ -62,7 +62,7 @@ class RedisProxyInstance:
                 retry_count += 1
                 if retry_count >= self.proxy.max_init_retries:
                     raise TimeoutError(f"Failed to initialize after {self.proxy.max_init_retries} attempts")
-                tomologger.warning(f"Initialization timed out, retrying ({retry_count}/{self.proxy.max_init_retries})...")
+                print(f"Initialization timed out, retrying ({retry_count}/{self.proxy.max_init_retries})...")
                 self.instance_id = str(uuid.uuid4())  # Generate new instance ID for retry
     
     def _initialize(self):
@@ -133,7 +133,7 @@ class RedisProxyInstance:
                 del self.proxy.response_cache[request_id]
         
         if retry_on_timeout and request_data['action'] != 'create':
-            tomologger.warning(f"Request timed out, reinitializing and retrying...")
+            print(f"Request timed out, reinitializing and retrying...")
             # Reinitialize the connection
             self.instance_id = str(uuid.uuid4())
             self._initialize()
@@ -161,7 +161,7 @@ class RedisProxyServer:
         request_channel = f"{self.channel_prefix}_request"
         self.pubsub.subscribe(request_channel)
         
-        tomologger.info(f"Redis proxy server started, listening on channel {request_channel}")
+        print(f"Redis proxy server started, listening on channel {request_channel}")
         
         for message in self.pubsub.listen():
             if not self.running:
@@ -171,12 +171,12 @@ class RedisProxyServer:
                 try:
                     self._handle_request(message['data'])
                 except Exception as e:
-                    tomologger.error(f"Error handling request: {e}")
+                    print(f"Error handling request: {e}")
     
     def stop(self):
         self.running = False
         self.pubsub.unsubscribe()
-        tomologger.info("Redis proxy server stopped")
+        print("Redis proxy server stopped")
     
     def _handle_request(self, data):
         request = pickle.loads(data)
