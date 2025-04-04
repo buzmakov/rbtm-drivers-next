@@ -8,13 +8,14 @@ import functools
 
 class RedisProxy:
     def __init__(self, target_class, redis_host='localhost', redis_port=6379, redis_db=0, 
-                 channel_prefix='redis_proxy', timeout=30):
+                 channel_prefix='redis_proxy', timeout=15, max_init_retries=3):
         self.redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
         self.channel_prefix = channel_prefix
         self.timeout = timeout
         self.target_class = target_class
         self.response_cache = {}
         self.lock = threading.Lock()
+        self.max_init_retries = max_init_retries
         
         # Subscribe to response channel
         self.pubsub = self.redis_client.pubsub()
@@ -47,18 +48,35 @@ class RedisProxyInstance:
     def __init__(self, proxy, *args, **kwargs):
         self.proxy = proxy
         self.instance_id = str(uuid.uuid4())
+        self.init_args = args
+        self.init_kwargs = kwargs
         
-        # Send initialization request
+        # Send initialization request with retries
+        retry_count = 0
+        while retry_count < self.proxy.max_init_retries:
+            try:
+                self._initialize()
+                break  # Successful initialization
+            except TimeoutError:
+                retry_count += 1
+                if retry_count >= self.proxy.max_init_retries:
+                    raise TimeoutError(f"Failed to initialize after {self.proxy.max_init_retries} attempts")
+                print(f"Initialization timed out, retrying ({retry_count}/{self.proxy.max_init_retries})...")
+                self.instance_id = str(uuid.uuid4())  # Generate new instance ID for retry
+    
+    def _initialize(self):
         request_data = {
             'request_id': str(uuid.uuid4()),
             'action': 'create',
             'instance_id': self.instance_id,
             'class_name': self.proxy.target_class.__name__,
-            'args': args,
-            'kwargs': kwargs
+            'args': self.init_args,
+            'kwargs': self.init_kwargs
         }
         
-        self._send_request_and_wait(request_data)
+        # For initialization, we don't want to retry within _send_request_and_wait
+        # because we're already handling retries at the initialization level
+        self._send_request_and_wait(request_data, retry_on_timeout=False)
     
     def __getattr__(self, name):
         # Check if it's a method or attribute
@@ -76,14 +94,18 @@ class RedisProxyInstance:
             'kwargs': kwargs
         }
         
-        response = self._send_request_and_wait(request_data)
-        
-        if 'exception' in response:
-            raise Exception(response['exception'])
-        
-        return response.get('result')
+        try:
+            response = self._send_request_and_wait(request_data)
+            
+            if 'exception' in response:
+                raise Exception(response['exception'])
+            
+            return response.get('result')
+        except TimeoutError:
+            # If we get here, it means the retry also failed
+            raise
     
-    def _send_request_and_wait(self, request_data):
+    def _send_request_and_wait(self, request_data, retry_on_timeout=True):
         request_id = request_data['request_id']
         
         # Register in response cache
@@ -108,6 +130,17 @@ class RedisProxyInstance:
         with self.proxy.lock:
             if request_id in self.proxy.response_cache:
                 del self.proxy.response_cache[request_id]
+        
+        if retry_on_timeout and request_data['action'] != 'create':
+            print(f"Request timed out, reinitializing and retrying...")
+            # Reinitialize the connection
+            self.instance_id = str(uuid.uuid4())
+            self._initialize()
+            
+            # Retry the original request with the new instance
+            request_data['request_id'] = str(uuid.uuid4())
+            request_data['instance_id'] = self.instance_id
+            return self._send_request_and_wait(request_data, retry_on_timeout=False)
         
         raise TimeoutError(f"Request timed out after {self.proxy.timeout} seconds")
 
