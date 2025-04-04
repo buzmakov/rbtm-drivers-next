@@ -76,5 +76,5 @@ volumes:
   redis-data:
 
 networks:
-  rbtrbtm-drivers-next_default:
-    external: true
+  default:
+    name: rbtrbtm-drivers-next_default

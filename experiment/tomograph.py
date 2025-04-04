@@ -14,7 +14,7 @@ from . import tomo_logger
 class Tomograph:
 
     def __init__(self, mock=False, redis_host='redis', redis_port=6379, redis_db=0, 
-                 channel_prefix='redis_proxy', timeout=15, max_init_retries=3):
+                 channel_prefix='tomograph_proxy', timeout=15, max_init_retries=3):
         # Используем RedisProxy для инициализации HWTomograph
         HWTomographProxy = RedisProxy(HWTomograph, 
                                      redis_host=redis_host, 
