@@ -8,3 +8,4 @@ matplotlib
 autologging
 cachetools
 waitress
+redis

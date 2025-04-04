@@ -21,6 +21,19 @@ services:
     environment:
       - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
 
+  redis:
+    image: redis:latest
+    container_name: rbtm-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis-data:
+
   drivers_usb:
     build: .
     container_name: rbtm-drivers-usb

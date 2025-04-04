@@ -4,3 +4,6 @@ det_test.npy
 image.png
 .vscode/settings.json
 logs/
+.aider.tags.cache.v3
+.coding-aider-plans
+.aider*
