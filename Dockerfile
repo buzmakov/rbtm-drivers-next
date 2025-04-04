@@ -25,6 +25,9 @@ COPY experiment/ /drivers/experiment
 
 
 EXPOSE 5001
+
+COPY tomograph_server.py /drivers/tomograph_server.py
+
 # ARG USER_ID=1000
 # ARG GROUP_ID=1000
 # RUN groupadd -g ${GROUP_ID} robotom &&\
