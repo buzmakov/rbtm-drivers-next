@@ -1,10 +1,11 @@
 from drivers.Tomograph.Tomograph import HWTomograph
 from experiment.redis_proxy import RedisProxyServer
+from experiment.tomologger import tomologger
 import time
 import sys
 
 def main():
-    print("Starting Tomograph RedisProxyServer...")
+    tomologger.info("Starting Tomograph RedisProxyServer...")
     
     # Создаем экземпляр сервера, который будет обслуживать класс HWTomograph
     server = RedisProxyServer(
@@ -19,10 +20,10 @@ def main():
         # Запускаем сервер (блокирующий вызов)
         server.start()
     except KeyboardInterrupt:
-        print("Shutting down server...")
+        tomologger.info("Shutting down server...")
         server.stop()
     except Exception as e:
-        print(f"Error in server: {e}")
+        tomologger.error(f"Error in server: {e}")
         # В случае ошибки завершаем процесс с кодом ошибки
         sys.exit(1)
 
@@ -32,6 +33,6 @@ if __name__ == "__main__":
         try:
             main()
         except Exception as e:
-            print(f"Server crashed with error: {e}")
-            print("Restarting in 5 seconds...")
+            tomologger.critical(f"Server crashed with error: {e}")
+            tomologger.info("Restarting in 5 seconds...")
             time.sleep(5)
