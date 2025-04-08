@@ -4,6 +4,9 @@ services:
     build: .
     container_name: rbtm-drivers-fw
     restart: unless-stopped
+    depends_on:
+      tomograph_server:
+        condition: service_started
     ports:
      - "5001:5001"
     volumes:
@@ -22,13 +25,24 @@ services:
       - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
 
   redis:
-    image: redis:latest
-    container_name: redis
-    restart: unless-stopped
+    image: redis:alpine
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
-    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+  
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+    restart: always
+
   tomograph_server:
     build: .
     container_name: rbtm-tomograph-server
@@ -50,23 +64,23 @@ services:
       - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
     command: python tomograph_server.py
 
-  drivers_usb:
-    build: .
-    container_name: rbtm-drivers-usb
-    restart: unless-stopped
-    ports:
-     - "5001:5001"
-    volumes:
-      # - "/dev/ximc/0000037A:/dev/ximc/0000037A"
-      # - "/dev/ximc/00000271:/dev/ximc/00000271"
-      - "./logs:/drivers/logs"
-    # devices:
-    #   - "/dev/ttyACM2:/dev/ttyACM2"
-    #   - "/dev/ttyACM1:/dev/ttyACM1"
-    #   - "/dev/ttyACM0:/dev/ttyACM0"
-    #   # - "/dev/ttyUSB0:/dev/ttyUSB0"
-    #   # - "/dev/fw0:/dev/fw0"
-    #   # - "/dev/fw1:/dev/fw1"
-    #   - "/dev/bus/usb/004/003:/dev/bus/usb/004/003"
-    environment:
-      - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64
+# drivers_usb:
+  #   build: .
+  #   container_name: rbtm-drivers-usb
+  #   restart: unless-stopped
+  #   ports:
+  #    - "5001:5001"
+  #   volumes:
+  #     # - "/dev/ximc/0000037A:/dev/ximc/0000037A"
+  #     # - "/dev/ximc/00000271:/dev/ximc/00000271"
+  #     - "./logs:/drivers/logs"
+  #   # devices:
+  #   #   - "/dev/ttyACM2:/dev/ttyACM2"
+  #   #   - "/dev/ttyACM1:/dev/ttyACM1"
+  #   #   - "/dev/ttyACM0:/dev/ttyACM0"
+  #   #   # - "/dev/ttyUSB0:/dev/ttyUSB0"
+  #   #   # - "/dev/fw0:/dev/fw0"
+  #   #   # - "/dev/fw1:/dev/fw1"
+  #   #   - "/dev/bus/usb/004/003:/dev/bus/usb/004/003"
+  #   environment:
+  #     - LD_LIBRARY_PATH=/drivers/vendor/ximea/libs/libusb/X64:/drivers/vendor/ximea/libs/libraw1394/X64:/drivers/vendor/ximea/api/X64

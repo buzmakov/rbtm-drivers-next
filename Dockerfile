@@ -27,6 +27,7 @@ COPY experiment/ /drivers/experiment
 EXPOSE 5001
 
 COPY tomograph_server.py /drivers/tomograph_server.py
+COPY redis_proxy.py /drivers/redis_proxy.py
 
 # ARG USER_ID=1000
 # ARG GROUP_ID=1000

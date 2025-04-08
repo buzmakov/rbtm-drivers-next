@@ -21,13 +21,13 @@ import atexit
 from autologging import traced
 from .. import tomo_logger
 
-@traced(tomo_logger.logger)
+# @traced(tomo_logger.logger)
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
-            self.cam.set_debug_level("XI_DL_TRACE")
+            self.cam.set_debug_level("XI_DL_WARNING")
             self.cam.open_device()
         except xiapi.Xi_error as err:
             tomo_logger.logger.error("Detector.init() failed " + str(err))

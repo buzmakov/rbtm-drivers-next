@@ -4,16 +4,18 @@ import json
 
 from .experiment import ModExpError, Experiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
-from drivers.Tomograph.Tomograph import HWTomograph
+# from drivers.Tomograph.Tomograph import HWTomograph
 from .redis_proxy import RedisProxy
 
 from autologging import traced
 from . import tomo_logger
 
+class HWTomograph:
+    pass
+
 @traced(tomo_logger.logger)
 class Tomograph:
-
-    def __init__(self, mock=False, redis_host='redis', redis_port=6379, redis_db=0, 
+    def __init__(self, mock=True, redis_host='redis', redis_port=6379, redis_db=0, 
                  channel_prefix='tomograph_proxy', timeout=15, max_init_retries=3):
         # Используем RedisProxy для инициализации HWTomograph
         HWTomographProxy = RedisProxy(HWTomograph, 
