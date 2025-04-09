@@ -32,24 +32,24 @@ class HWTomograph(object):
             mock=mock
         )
 
-        # horizontal_motor_config = get_horizontal_motor_config()
-        # self.horizontal_motor = Motor.HWMotor(horizontal_motor_config['port'],
-        #                                       horizontal_motor_config['speed'],
-        #                                       horizontal_motor_config['acceleration'],
-        #                                       horizontal_motor_config['step_360'])
+        horizontal_motor_config = get_horizontal_motor_config()
+        self.horizontal_motor = Motor.HWMotor(horizontal_motor_config['port'],
+                                              horizontal_motor_config['speed'],
+                                              horizontal_motor_config['acceleration'],
+                                              horizontal_motor_config['step_360'])
 
-        # angle_motor_config = get_angle_motor_config()
-        # self.angle_motor = Motor.HWMotor(angle_motor_config['port'],
-        #                                  angle_motor_config['speed'],
-        #                                  angle_motor_config['acceleration'],
-        #                                  angle_motor_config['step_360'])
+        angle_motor_config = get_angle_motor_config()
+        self.angle_motor = Motor.HWMotor(angle_motor_config['port'],
+                                         angle_motor_config['speed'],
+                                         angle_motor_config['acceleration'],
+                                         angle_motor_config['step_360'])
 
         self.detector = Detector.HWDetector()
 
         self.devices = {'shutter': self.shutter,
                         'source': self.source,
-                        # 'horizontal_motor': self.horizontal_motor,
-                        # 'angle_motor': self.angle_motor,
+                        'horizontal_motor': self.horizontal_motor,
+                        'angle_motor': self.angle_motor,
                         'detector': self.detector
                         }
 

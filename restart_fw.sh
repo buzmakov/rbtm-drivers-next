@@ -1,4 +1,7 @@
+export XIMEA_CAMERA_DEVICE="/dev/fw1:/dev/fw1"
+export COMPOSE_BAKE=true
+
 cd /home/robotom/workspace/xtomo/rbtm-drivers-next && \
 docker compose down && \
-docker compose build drivers_fw redis tomograph_server && \
-docker compose up drivers_fw redis tomograph_server
+docker compose build && \
+docker compose up experiment redis tomograph_server

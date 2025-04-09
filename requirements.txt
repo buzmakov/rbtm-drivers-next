@@ -9,3 +9,4 @@ autologging
 cachetools
 waitress
 redis
+ipython
