@@ -4,4 +4,4 @@ export COMPOSE_BAKE=true
 cd /home/robotom/workspace/xtomo/rbtm-drivers-next && \
 docker compose down && \
 docker compose build && \
-docker compose up experiment redis tomograph_server
+docker compose up -d experiment redis tomograph_server

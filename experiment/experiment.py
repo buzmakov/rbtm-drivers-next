@@ -106,6 +106,7 @@ class Experiment:
         self.to_be_stopped = False
         self.stop_exception = None
         self.tomograph.source_power_on()
+        self.tomograph.reset_to_zero_angle()
         self.collect_dark_frames()
         self.collect_empty_frames()
         self.collect_data_frames()

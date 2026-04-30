@@ -9,7 +9,7 @@ services:
     ports:
      - "5001:5001"
     volumes:
-      - "./logs:/drivers/logs"
+      - "./logs/experiment:/xtomo/logs"
     # environment:
     #   - LD_LIBRARY_PATH=/xtomo/vendor/ximea/libs/libusb/X64:/xtomo/vendor/ximea/libs/libraw1394/X64:/xtomo/vendor/ximea/api/X64
 
@@ -40,7 +40,7 @@ services:
       redis:
         condition: service_started
     volumes:
-      - "./logs:/drivers/logs"
+      - "./logs/tomo_server:/xtomo/logs"
     devices:
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM1:/dev/ttyACM1"
