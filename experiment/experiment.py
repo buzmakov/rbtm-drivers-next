@@ -229,9 +229,9 @@ def send_to_storage(storage_uri, data, lock=None, files=None):
         lock.release()
 
 
-def make_preview_data(image_numpy, max_width=600, max_height=400):
+def make_preview_data(image_numpy, max_width=900, max_height=600):
     """
-    Resize image proportionally, apply 3×3 median filter.
+    Resize image proportionally (no median filter for speed).
     Returns dict: {'data': float32 ndarray, 'width': int, 'height': int}
     Does NOT normalise — caller gets raw detector values.
     """
@@ -249,9 +249,6 @@ def make_preview_data(image_numpy, max_width=600, max_height=400):
             arr = np.dot(arr[..., :3].astype(np.float32), [0.2126, 0.7152, 0.0722])
 
         arr = arr.astype(np.float32)
-
-        # 3×3 median filter
-        arr = median_filter(arr, 3)
 
         return {
             'data': arr,
