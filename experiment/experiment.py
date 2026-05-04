@@ -229,7 +229,7 @@ def send_to_storage(storage_uri, data, lock=None, files=None):
         lock.release()
 
 
-def make_preview_data(image_numpy, max_width=1200, max_height=800):
+def make_preview_data(image_numpy, max_width=600, max_height=400):
     """
     Resize image proportionally, apply 3×3 median filter.
     Returns dict: {'data': float32 ndarray, 'width': int, 'height': int}
