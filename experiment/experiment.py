@@ -229,6 +229,42 @@ def send_to_storage(storage_uri, data, lock=None, files=None):
         lock.release()
 
 
+def make_preview_data(image_numpy, max_width=600, max_height=400):
+    """
+    Resize image proportionally, apply 3×3 median filter.
+    Returns dict: {'data': float32 ndarray, 'width': int, 'height': int}
+    Does NOT normalise — caller gets raw detector values.
+    """
+    try:
+        arr = np.fliplr(image_numpy) if image_numpy.ndim == 2 else np.fliplr(image_numpy)
+
+        orig_h, orig_w = arr.shape[:2]
+        scale = min(max_width / orig_w, max_height / orig_h, 1.0)
+        step_y = max(1, round(1.0 / scale)) if scale < 1.0 else 1
+        step_x = step_y  # keep square pixels
+        arr = arr[::step_y, ::step_x]
+
+        # Grayscale conversion if RGB
+        if arr.ndim == 3:
+            arr = np.dot(arr[..., :3].astype(np.float32), [0.2126, 0.7152, 0.0722])
+
+        arr = arr.astype(np.float32)
+
+        # 3×3 median filter
+        arr = median_filter(arr, 3)
+
+        return {
+            'data': arr,
+            'width': arr.shape[1],
+            'height': arr.shape[0],
+        }
+
+    except Exception as e:
+        logging.error("Could not make preview data from image: %s", e)
+        raise ModExpError(error="Could not make preview data from image",
+                          exception_message=str(e))
+
+
 def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
     try:
         small_res = np.fliplr(image_numpy)[::4, ::4]

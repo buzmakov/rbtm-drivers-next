@@ -1,9 +1,11 @@
-from flask import Blueprint, request, send_file
+from flask import Blueprint, request, send_file, Response
+import io
+import numpy as np
 
 import threading
 import json
 from .tomograph import Tomograph
-from .experiment import check_and_prepare_exp_parameters, send_to_storage, ModExpError, prepare_send_frame
+from .experiment import check_and_prepare_exp_parameters, send_to_storage, ModExpError, prepare_send_frame, make_preview_data
 from .constants import FRAME_PNG_FILENAME, STORAGE_EXP_START_URI, SOMEONE_STOP_MSG
 
 from . import tomologger
@@ -174,6 +176,44 @@ def detector_get_chip_temperature(tomo_num):
 @bp_tomograph.route('/detector/hous_temp', methods=['GET'])
 def detector_get_hous_temperature(tomo_num):
     return call_method_create_response(tomo_num, method_name='get_detector_hous_temperature')
+
+
+@bp_tomograph.route('/detector/get-frame-preview', methods=['POST'])
+def detector_get_frame_preview(tomo_num):
+    """
+    Same as get-frame but returns numpy array (npz) instead of PNG.
+    Response: application/octet-stream with npz containing:
+      - 'data'   : float32 2-D array (already resized + median-filtered)
+      - 'width'  : scalar
+      - 'height' : scalar
+    """
+    success, exposure, response_if_fail = check_request(request.data)
+    if not success:
+        return response_if_fail
+
+    try:
+        result = tomograph.get_frame(exposure, with_open_shutter=True)
+    except ModExpError as e:
+        return e.create_response()
+
+    tomograph.close_shutter()
+
+    image_numpy = result['image_data']['raw_image']
+
+    try:
+        preview = make_preview_data(image_numpy)
+    except ModExpError as e:
+        return e.create_response()
+
+    buf = io.BytesIO()
+    np.savez_compressed(buf,
+                        data=preview['data'],
+                        width=np.array(preview['width']),
+                        height=np.array(preview['height']))
+    buf.seek(0)
+    return Response(buf.read(),
+                    mimetype='application/octet-stream',
+                    headers={'Content-Disposition': 'attachment; filename=preview.npz'})
 
 
 # Experiment routes
