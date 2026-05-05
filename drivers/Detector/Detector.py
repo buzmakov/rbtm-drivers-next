@@ -56,6 +56,12 @@ class HWDetector(object):
             tomo_logger.logger.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
 
+    def get_model(self):
+        try:
+            return self.cam.get_device_name()
+        except xiapi.Xi_error:
+            return 'Ximea xiRAY'
+
     def set_gain(self, gain):
         self.cam.set_gain(gain)
 
@@ -109,6 +115,8 @@ class HWDetector(object):
                 s = self.get_sensor_temp()
             elif option == 'hous_temp':
                 s = self.get_hous_temp()
+            elif option == 'model':
+                s = self.get_model()
             else:
                 s = {'error': 'Unsupported option'}
             res[option] = s

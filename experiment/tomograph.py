@@ -139,6 +139,9 @@ class Tomograph:
     def get_detector_hous_temperature(self):
         return self.hwtomo.detector.get_hous_temp()
 
+    def get_detector_model(self):
+        return self.hwtomo.detector.get_model()
+
     def get_frame(self, exposure: float, with_open_shutter=None, send_to_webpage=False):
         """
         :param: exposue: exposition in millisecomds
@@ -171,7 +174,7 @@ class Tomograph:
     def get_detector_frame_metadata(self):
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         timestamp = time.time()
-        detector_data = {'model': 'Ximea xiRAY'}
+        detector_data = {'model': self.hwtomo.detector.get_model()}
         exposure = self.hwtomo.detector.get_exposure() * 1e3
         chip_temp = self.hwtomo.detector.get_sensor_temp()
         hous_temp = self.hwtomo.detector.get_hous_temp()

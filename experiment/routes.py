@@ -178,6 +178,11 @@ def detector_get_hous_temperature(tomo_num):
     return call_method_create_response(tomo_num, method_name='get_detector_hous_temperature')
 
 
+@bp_tomograph.route('/detector/model', methods=['GET'])
+def detector_get_model(tomo_num):
+    return call_method_create_response(tomo_num, method_name='get_detector_model')
+
+
 @bp_tomograph.route('/detector/get-frame-preview', methods=['POST'])
 def detector_get_frame_preview(tomo_num):
     """
