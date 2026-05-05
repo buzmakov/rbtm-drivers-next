@@ -140,7 +140,10 @@ class Tomograph:
         return self.hwtomo.detector.get_hous_temp()
 
     def get_detector_model(self):
-        return self.hwtomo.detector.get_model()
+        try:
+            return self.hwtomo.detector.get_model()
+        except Exception:
+            return 'Ximea xiRAY'
 
     def get_frame(self, exposure: float, with_open_shutter=None, send_to_webpage=False):
         """

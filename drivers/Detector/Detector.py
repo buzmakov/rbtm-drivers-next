@@ -59,7 +59,7 @@ class HWDetector(object):
     def get_model(self):
         try:
             return self.cam.get_device_name()
-        except xiapi.Xi_error:
+        except Exception:
             return 'Ximea xiRAY'
 
     def set_gain(self, gain):
