@@ -197,14 +197,19 @@ def detector_get_frame_preview(tomo_num):
 
     try:
         body = json.loads(request.data)
-        exposure = float(body)  # backward compat: body may be bare number
-        downsample = 4
     except (TypeError, ValueError):
+        return create_response(success=False, error='Request body is not valid JSON')
+
+    # Body can be a bare number (legacy) or a dict {exposure_ms, downsample}
+    if isinstance(body, dict):
+        exposure = float(body.get('exposure_ms', 1000.0))
+        downsample = int(body.get('downsample', 4))
+    else:
         try:
-            exposure = float(body.get('exposure_ms', 1000.0))
-            downsample = int(body.get('downsample', 4))
-        except Exception:
-            return create_response(success=False, error='Invalid request body')
+            exposure = float(body)
+            downsample = 4
+        except (TypeError, ValueError):
+            return create_response(success=False, error='Invalid exposure value')
 
     try:
         result = tomograph.get_frame(exposure, with_open_shutter=True)
