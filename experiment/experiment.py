@@ -229,31 +229,33 @@ def send_to_storage(storage_uri, data, lock=None, files=None):
         lock.release()
 
 
-def make_preview_data(image_numpy, max_width=900, max_height=600):
+def make_preview_data(image_numpy, downsample=4):
     """
-    Resize image proportionally (no median filter for speed).
-    Returns dict: {'data': float32 ndarray, 'width': int, 'height': int}
-    Does NOT normalise — caller gets raw detector values.
+    Downsample image by integer factor, then apply 3×3 median filter on the
+    small array (fast). Returns raw uint16 values — no normalisation.
+
+    Args:
+        image_numpy: 2-D uint16 ndarray from detector
+        downsample:  integer stride (default 4 → image is 1/4 size each axis)
+
+    Returns dict:
+        data   : uint16 2-D ndarray
+        width  : int
+        height : int
     """
     try:
-        arr = np.fliplr(image_numpy) if image_numpy.ndim == 2 else np.fliplr(image_numpy)
+        k = max(1, int(downsample))
 
-        orig_h, orig_w = arr.shape[:2]
-        scale = min(max_width / orig_w, max_height / orig_h, 1.0)
-        step_y = max(1, round(1.0 / scale)) if scale < 1.0 else 1
-        step_x = step_y  # keep square pixels
-        arr = arr[::step_y, ::step_x]
+        # Fast integer stride downsampling (view, no copy)
+        arr = image_numpy[::k, ::k]
 
-        # Grayscale conversion if RGB
-        if arr.ndim == 3:
-            arr = np.dot(arr[..., :3].astype(np.float32), [0.2126, 0.7152, 0.0722])
-
-        arr = arr.astype(np.float32)
+        # Median filter on the small array — much faster than on full image
+        arr = median_filter(arr, size=3).astype(np.uint16)
 
         return {
             'data': arr,
-            'width': arr.shape[1],
-            'height': arr.shape[0],
+            'width': int(arr.shape[1]),
+            'height': int(arr.shape[0]),
         }
 
     except Exception as e:

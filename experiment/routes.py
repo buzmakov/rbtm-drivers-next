@@ -181,15 +181,30 @@ def detector_get_hous_temperature(tomo_num):
 @bp_tomograph.route('/detector/get-frame-preview', methods=['POST'])
 def detector_get_frame_preview(tomo_num):
     """
-    Same as get-frame but returns numpy array (npz) instead of PNG.
-    Response: application/octet-stream with npz containing:
-      - 'data'   : float32 2-D array (already resized + median-filtered)
-      - 'width'  : scalar
-      - 'height' : scalar
+    Capture a frame and return a downsampled uint16 numpy array (npz).
+
+    Request body JSON:
+      exposure_ms  : float  — exposure in milliseconds
+      downsample   : int    — integer stride for downsampling (default 4)
+
+    Response: application/octet-stream, npz with keys:
+      data   : uint16 2-D array (downsampled + median-filtered)
+      width  : scalar int
+      height : scalar int
     """
-    success, exposure, response_if_fail = check_request(request.data)
-    if not success:
-        return response_if_fail
+    if not request.data:
+        return create_response(success=False, error='Request is empty')
+
+    try:
+        body = json.loads(request.data)
+        exposure = float(body)  # backward compat: body may be bare number
+        downsample = 4
+    except (TypeError, ValueError):
+        try:
+            exposure = float(body.get('exposure_ms', 1000.0))
+            downsample = int(body.get('downsample', 4))
+        except Exception:
+            return create_response(success=False, error='Invalid request body')
 
     try:
         result = tomograph.get_frame(exposure, with_open_shutter=True)
@@ -201,7 +216,7 @@ def detector_get_frame_preview(tomo_num):
     image_numpy = result['image_data']['raw_image']
 
     try:
-        preview = make_preview_data(image_numpy)
+        preview = make_preview_data(image_numpy, downsample=downsample)
     except ModExpError as e:
         return e.create_response()
 
