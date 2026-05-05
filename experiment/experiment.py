@@ -229,7 +229,7 @@ def send_to_storage(storage_uri, data, lock=None, files=None):
         lock.release()
 
 
-def make_preview_data(image_numpy, downsample=6):
+def make_preview_data(image_numpy, downsample=4):
     """
     Downsample image by integer factor, then apply 3×3 median filter on the
     small array (fast). Returns raw uint16 values — no normalisation.
