@@ -174,7 +174,7 @@ class Tomograph:
     def get_detector_frame_metadata(self):
         current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         timestamp = time.time()
-        detector_data = {'model': self.hwtomo.detector.get_model()}
+        detector_data = {'model': 'Ximea xiRAY'}
         exposure = self.hwtomo.detector.get_exposure() * 1e3
         chip_temp = self.hwtomo.detector.get_sensor_temp()
         hous_temp = self.hwtomo.detector.get_hous_temp()
