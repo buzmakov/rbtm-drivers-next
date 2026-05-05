@@ -58,7 +58,10 @@ class HWDetector(object):
 
     def get_model(self):
         try:
-            return self.cam.get_device_name()
+            name = self.cam.get_device_name()
+            if isinstance(name, bytes):
+                return name.decode('utf-8', errors='replace').rstrip('\x00')
+            return str(name)
         except Exception:
             return 'Ximea xiRAY'
 
