@@ -22,6 +22,12 @@ from autologging import traced
 from .. import tomo_logger
 
 # @traced(tomo_logger.logger)
+PIXEL_SIZES = {
+    'MH110XC-KK-FA': 9.0e-3,  # pixel size in mm
+}
+DEFAULT_PIXEL_SIZE = 4.25e-3  # pixel size in mm
+
+
 class HWDetector(object):
     def __init__(self):
         # create instance for first connected camera
@@ -64,6 +70,10 @@ class HWDetector(object):
             return str(name)
         except Exception:
             return 'Ximea xiRAY'
+
+    def get_pixel_size(self):
+        """Return physical pixel size in mm based on detector model."""
+        return PIXEL_SIZES.get(self.get_model(), DEFAULT_PIXEL_SIZE)
 
     def set_gain(self, gain):
         self.cam.set_gain(gain)

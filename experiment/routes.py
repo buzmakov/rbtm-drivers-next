@@ -271,7 +271,15 @@ def experiment_start(tomo_num):
         return create_response(success=False, error="Undefined tomograph state")
 
     try:
-        send_to_storage(STORAGE_EXP_START_URI, data=request.data)
+        # Обогащаем данные эксперимента параметрами детектора
+        try:
+            data_dict = json.loads(request.data)
+            data_dict['detector_model'] = tomograph.get_detector_model()
+            data_dict['pixel_size'] = tomograph.get_detector_pixel_size()
+            enriched_data = json.dumps(data_dict).encode()
+        except Exception:
+            enriched_data = request.data
+        send_to_storage(STORAGE_EXP_START_URI, data=enriched_data)
     except ModExpError as e:  #TODO: should we crashed here?
         return e.create_response()
 
