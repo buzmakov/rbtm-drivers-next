@@ -33,10 +33,15 @@ class HWTomograph(object):
         )
 
         horizontal_motor_config = get_horizontal_motor_config()
+        # steps_on_deg=None: горизонтальный мотор линейный, deg-методы не применяются.
+        # TODO: архитектурная проблема — линейный и вращательный моторы используют один класс HWMotor.
+        #       Требуется рефакторинг на HWRotaryMotor / HWLinearMotor.
         self.horizontal_motor = Motor.HWMotor(horizontal_motor_config['port'],
                                               horizontal_motor_config['speed'],
                                               horizontal_motor_config['acceleration'],
-                                              horizontal_motor_config['step_360'])
+                                              steps_on_deg=None)
+        # Позиция парковки объекта — вынос из рентгеновского пучка (в шагах).
+        self.horizontal_motor_move_object_outside = horizontal_motor_config['move_object_outside']
 
         angle_motor_config = get_angle_motor_config()
         self.angle_motor = Motor.HWMotor(angle_motor_config['port'],

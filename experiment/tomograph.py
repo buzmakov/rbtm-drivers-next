@@ -85,52 +85,100 @@ class Tomograph:
         return json.dumps({'state': self.shutter_status()})
 
     def set_x(self, new_x):
+        """
+        Переместить горизонтальный (линейный) мотор на абсолютную позицию в шагах.
+
+        :param new_x: int | float — позиция в шагах, диапазон [-5000, 2000].
+        :raises ModExpError: при неверном типе или выходе за границы диапазона.
+        """
         if type(new_x) not in (int, float):
             raise ModExpError(error='Incorrect type! Position type must be int, but it is ' + str(type(new_x)))
 
         if new_x < -5000 or 2000 < new_x:
             raise ModExpError(error='Position must have value from -5000 to 2000')
 
-        self.hwtomo.horizontal_motor.move_to_position(new_x)
+        # blocking=False: не блокируем Redis-сервер во время движения,
+        # чтобы поллинг get_x() со страницы adjustment работал в реальном времени
+        self.hwtomo.horizontal_motor.move_to_position(new_x, blocking=False)
 
     def set_y(self, new_y):
+        """
+        Установить вертикальную позицию объекта (заглушка — вертикальный мотор отсутствует).
+        Значение сохраняется только в памяти и используется в метаданных кадров.
+
+        :param new_y: int | float — вертикальная позиция, диапазон [-5000, 2000].
+        :raises ModExpError: при неверном типе или выходе за границы диапазона.
+        """
         if type(new_y) not in (int, float):
             raise ModExpError(error='Incorrect type! Position type must be int, but it is ' + str(type(new_y)))
 
         if new_y < -5000 or 2000 < new_y:
-            raise ModExpError(error='Position must have value from -30 to 30')
+            raise ModExpError(error='Position must have value from -5000 to 2000')
 
         self.y_position = new_y
 
     def set_angle(self, new_angle):
         """
+        Повернуть угловой мотор на абсолютную позицию в градусах.
+        Угол нормализуется в диапазон [0, 360).
 
-        :param new_angle: angle in degrees
+        :param new_angle: int | float — угол в градусах.
+        :raises ModExpError: при неверном типе аргумента.
         """
         if type(new_angle) not in (int, float):
             raise ModExpError(
                 error='Incorrect type! Position type must be int or float, but it is ' + str(type(new_angle)))
 
         new_angle %= 360
-        self.hwtomo.angle_motor.move_to_position_deg(new_angle)
+        # blocking=False: не блокируем Redis-сервер во время вращения,
+        # чтобы поллинг get_angle() со страницы adjustment работал в реальном времени
+        self.hwtomo.angle_motor.move_to_position_deg(new_angle, blocking=False)
 
     def get_x(self):
+        """
+        Получить текущую позицию горизонтального мотора в шагах.
+
+        :return: float — абсолютная позиция в шагах.
+        """
         return self.hwtomo.horizontal_motor.get_position()
 
     def get_y(self):
+        """
+        Получить текущую вертикальную позицию объекта.
+        Заглушка: возвращает значение из памяти, вертикального мотора нет.
+
+        :return: float — вертикальная позиция (установленная через set_y).
+        """
         return self.y_position
 
     def get_angle(self):
+        """
+        Получить текущий угол поворота углового мотора в градусах.
+
+        :return: float — угол в градусах.
+        """
         return self.hwtomo.angle_motor.get_position_deg()
 
     def reset_to_zero_angle(self):
+        """
+        Принять текущую угловую позицию за нулевую (home position углового мотора).
+        """
         self.hwtomo.angle_motor.set_zero()
 
     def move_away(self):
-        self.hwtomo.horizontal_motor.move_to_position(-6000) #TODO: take value from config
+        """
+        Переместить горизонтальный мотор в позицию парковки объекта
+        (вывод образца из рентгеновского пучка).
+        Целевая позиция берётся из конфигурационного параметра move_object_outside.
+        """
+        outside_pos = self.hwtomo.horizontal_motor_move_object_outside
+        self.hwtomo.horizontal_motor.move_to_position(outside_pos)
         self.object_present = False
 
     def move_back(self):
+        """
+        Переместить горизонтальный мотор в рабочую позицию (позиция 0 — объект в пучке).
+        """
         self.hwtomo.horizontal_motor.move_to_position(0)
         self.object_present = True
 
@@ -154,7 +202,17 @@ class Tomograph:
 
     def get_frame(self, exposure: float, with_open_shutter=None, send_to_webpage=False):
         """
-        :param: exposue: exposition in millisecomds
+        Сделать один кадр детектором.
+
+        :param exposure: float — выдержка в миллисекундах.
+        :param with_open_shutter: bool | None —
+               True  — открыть заслонку перед съёмкой (светлый кадр),
+               False — закрыть заслонку перед съёмкой (тёмный кадр),
+               None  — не менять состояние заслонки.
+        :param send_to_webpage: bool — зарезервирован, в текущей реализации не используется.
+        :return: dict с ключами image_data, object, shutter, X-ray source и
+                 дополнительным полем image_data['raw_image'] (numpy array).
+        :raises ModExpError: при неверном типе параметра или ошибке декодирования метаданных.
         """
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
