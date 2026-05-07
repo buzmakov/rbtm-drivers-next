@@ -218,32 +218,36 @@ class Tomograph:
 
     def carry_out_simple_experiment(self, exp_param):
         self.current_experiment = Experiment(_tomograph=self, exp_param=exp_param)
-
         exp_id = self.current_experiment.exp_id
-
+        event_for_send = None
         try:
             self.current_experiment.run()
-        except ModExpError as e:   # TODO: should we crashed here?
-            event_for_send = e.to_event_dict(exp_id)
-        else:
             event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
-
-        self.last_experiment_status = self.current_experiment.get_status()
-        send_message_to_storage_webpage(event_for_send)
-        self.current_experiment = None
+        except ModExpError as e:
+            event_for_send = e.to_event_dict(exp_id)
+        except Exception as e:
+            err = ModExpError(error='Unexpected error: {}'.format(str(e)))
+            event_for_send = err.to_event_dict(exp_id)
+        finally:
+            self.last_experiment_status = self.current_experiment.get_status()
+            self.current_experiment = None
+        if event_for_send:
+            send_message_to_storage_webpage(event_for_send)
 
     def carry_out_advanced_experiment(self, exp_param):
         self.current_experiment = AdvancedExperiment(_tomograph=self, exp_param=exp_param)
-
         exp_id = self.current_experiment.exp_id
-
+        event_for_send = None
         try:
             self.current_experiment.run()
+            event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
         except ModExpError as e:
             event_for_send = e.to_event_dict(exp_id)
-        else:
-            event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
-
-        self.last_experiment_status = self.current_experiment.get_status()
-        send_message_to_storage_webpage(event_for_send)
-        self.current_experiment = None
+        except Exception as e:
+            err = ModExpError(error='Unexpected error: {}'.format(str(e)))
+            event_for_send = err.to_event_dict(exp_id)
+        finally:
+            self.last_experiment_status = self.current_experiment.get_status()
+            self.current_experiment = None
+        if event_for_send:
+            send_message_to_storage_webpage(event_for_send)

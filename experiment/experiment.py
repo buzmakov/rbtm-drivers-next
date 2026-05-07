@@ -470,24 +470,26 @@ def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, lock=None):
 
 def send_to_storage(storage_uri, data, lock=None, files=None):
     try:
-        storage_resp = requests.post(storage_uri, files=files, data=data)
-    except Exception as e:
-        raise ModExpError(error='Problems with storage', exception_message='Could not send to storage {}'.format(e.message))
+        try:
+            storage_resp = requests.post(storage_uri, files=files, data=data)
+        except Exception as e:
+            raise ModExpError(error='Problems with storage', exception_message='Could not send to storage: {}'.format(str(e)))
 
-    try:
-        storage_resp_dict = json.loads(storage_resp.content)
-    except (ValueError, TypeError):
-        raise ModExpError(error='Problems with storage', exception_message='Storage\'s response is not JSON')
+        try:
+            storage_resp_dict = json.loads(storage_resp.content)
+        except (ValueError, TypeError):
+            raise ModExpError(error='Problems with storage', exception_message='Storage\'s response is not JSON')
 
-    if not ('result' in storage_resp_dict.keys()):
-        raise ModExpError(error='Problems with storage',
-                          exception_message="Storage\'s response has incorrect format (no 'result' key)")
+        if 'result' not in storage_resp_dict:
+            raise ModExpError(error='Problems with storage',
+                              exception_message="Storage's response has incorrect format (no 'result' key)")
 
-    if storage_resp_dict['result'] != 'success':
-        raise ModExpError(error='Problems with storage',
-                          exception_message='Storage\'s response:  ' + str(storage_resp_dict['result']))
-    if lock is not None:
-        lock.release()
+        if storage_resp_dict['result'] != 'success':
+            raise ModExpError(error='Problems with storage',
+                              exception_message='Storage\'s response: ' + str(storage_resp_dict['result']))
+    finally:
+        if lock is not None:
+            lock.release()
 
 
 def make_preview_data(image_numpy, downsample=4):
@@ -539,7 +541,7 @@ def make_png(image_numpy, png_filename=FRAME_PNG_FILENAME):
 
     except Exception as e:
         logging.error("Could not make png-file from image")
-        raise ModExpError(error="Could not make png-file from image", exception_message=e.message)
+        raise ModExpError(error="Could not make png-file from image", exception_message=str(e))
 
 
 def send_message_to_storage_webpage(event_dict):
