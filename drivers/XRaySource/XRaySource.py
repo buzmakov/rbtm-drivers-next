@@ -4,7 +4,8 @@ from time import sleep, time
 import atexit
 
 TIMEOUT = 10
-CACHE_TTL = 10      # секунды: кэшировать значение не дольше
+CACHE_TTL = 3       # секунды: кэшировать значение не дольше
+                    # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
 
 
 class HWSource(object):
