@@ -2,6 +2,23 @@
 
 Flask-сервис управления рентгеновским томографом. Принимает команды от `rbtm-web`, управляет оборудованием (двигатели, детектор, рентгеновская трубка, затвор) и отправляет кадры в `rbtm-storage`.
 
+## Структура проекта
+
+```
+rbtm-drivers-next/
+├── drivers/                     # Низкоуровневые драйверы оборудования
+│   ├── Detector/                # Детектор XIMEA xiRAY
+│   ├── Motors/                  # Шаговые моторы XIMC (Standa)
+│   ├── XRayShutter/             # Заслонка Ke-USB24R
+│   ├── XRaySource/              # Рентгеновский источник ISOVOLT 3003
+│   ├── Tomograph/               # Агрегирующий класс HWTomograph
+│   ├── config/devices.cfg       # Конфигурация портов и параметров
+│   └── tests/                   # Тесты оборудования
+├── experiment/                  # Flask API и логика эксперимента
+├── tomograph_server.py          # Отдельный процесс работы с железом
+└── redis_proxy.py               # Redis-прокси для межпроцессного взаимодействия
+```
+
 ## Запуск
 
 ```bash
@@ -28,6 +45,62 @@ rbtm-web (Django) ──HTTP──► rbtm-drivers-next (Flask :5001)
 - **`experiment/tomograph.py`** — `Tomograph` класс, проксирует команды через Redis
 - **`experiment/experiment.py`** — логика проведения эксперимента (`Experiment`, `AdvancedExperiment`)
 - **`tomograph_server.py`** — отдельный процесс, работает напрямую с `HWTomograph` через `RedisProxyServer`
+
+---
+
+## Драйверы оборудования
+
+Низкоуровневые драйверы находятся в пакете [`drivers/`](drivers/). Каждый драйвер реализует интерфейс `get_state()` / `set_state()` для унифицированного доступа к устройству.
+
+| Устройство | Класс | Документация |
+|---|---|---|
+| Детектор XIMEA xiRAY | [`HWDetector`](drivers/Detector/Detector.py) | [drivers/Detector/README.md](drivers/Detector/README.md) |
+| Шаговый мотор XIMC | [`HWMotor`](drivers/Motors/Motor.py) | [drivers/Motors/README.md](drivers/Motors/README.md) |
+| Заслонка Ke-USB24R | [`HWShutter`](drivers/XRayShutter/XRayShutter.py) | [drivers/XRayShutter/README.md](drivers/XRayShutter/README.md) |
+| Источник ISOVOLT 3003 | [`HWSource`](drivers/XRaySource/XRaySource.py) | [drivers/XRaySource/README.md](drivers/XRaySource/README.md) |
+| Томограф (агрегатор) | [`HWTomograph`](drivers/Tomograph/Tomograph.py) | — |
+
+### Конфигурация оборудования
+
+Параметры всех устройств (COM-порты, скорости, идентификаторы) задаются в [`drivers/config/devices.cfg`](drivers/config/devices.cfg):
+
+```ini
+[angle motor]
+port         = xi-com:///dev/ximc/0000037A
+step_in_360  = 32400
+speed        = 500
+acceleration = 500
+
+[horizontal motor]
+port                = xi-com:///dev/ximc/00000271
+speed               = 200
+acceleration        = 200
+move_object_outside = -4200
+
+[shutter]
+port  = /dev/ttyACM2
+relay = 4
+
+[x-ray source]
+port = /dev/ttyUSB0
+```
+
+### Тесты оборудования
+
+Интеграционные тесты для быстрой диагностики работоспособности устройств:
+
+```bash
+# Все тесты оборудования
+pytest --log-cli-level=INFO -s -v drivers/tests/
+
+# Отдельные устройства
+pytest --log-cli-level=INFO -s -v drivers/tests/test_detector.py
+pytest --log-cli-level=INFO -s -v drivers/tests/test_motors.py
+pytest --log-cli-level=INFO -s -v drivers/tests/test_shutter.py
+pytest --log-cli-level=INFO -s -v drivers/tests/test_source.py
+```
+
+Подробнее: [drivers/tests/README.md](drivers/tests/README.md)
 
 ---
 
