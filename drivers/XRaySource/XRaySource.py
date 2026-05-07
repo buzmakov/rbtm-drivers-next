@@ -4,9 +4,7 @@ from time import sleep, time
 import atexit
 
 TIMEOUT = 10
-
 CACHE_TTL = 10      # секунды: кэшировать значение не дольше
-RATE_LIMIT = 5      # секунды: минимальный интервал между запросами
 
 
 class HWSource(object):
@@ -16,6 +14,69 @@ class HWSource(object):
     ответ начинается с '*', заканчивается '\\r'. Коды ошибок читаются
     командой SR:12.
     """
+
+    STATUS_STRINGS = {
+        33: "Cooling system failed",
+        35: "Interlock open",
+        37: "Absolute undervoltage monitoring",
+        38: "Absolute overvoltage monitoring",
+        39: "Absolute undercurrent monitoring",
+        40: "Ground current has released",
+        41: "Overcurrent anode has released",
+        43: "Extern STOP",
+        44: "Focus change-over switch defect",
+        46: "EMERGENCY-STOP",
+        47: "Preselection exceeding rated power",
+        48: "Overcurrent cathode has released",
+        50: "Tube overpower",
+        51: "Preselection out of range",
+        52: "Presel. exceeding rated generator current",
+        53: "High voltage lamp defective",
+        55: "Relative overcurrent monitoring",
+        56: "Relative undervoltage monitoring",
+        57: "Wrong tube type",
+        58: "Not programmed",
+        60: "Relative undercurrent monitoring",
+        61: "Chopper overcurrent",
+        62: "Overtemperature anode",
+        63: "Door contact 1 and 2 open",
+        64: "Door contact 1 open",
+        65: "Door contact 2 open",
+        66: "Exposuretime = 0",
+        72: "Preselection out of range, too low",
+        74: "High voltage locked",
+        76: "Stand-By",
+        77: "Preselection too large",
+        78: "Overwrite program?",
+        80: "Temperature supervision power module",
+        82: "HV prim. overcurrent",
+        86: "HV contactor faulty",
+        87: "Flash lamp faulty",
+        88: "Chopper temperature",
+        89: "Filament primary overcurrent",
+        90: "Filament primary undercurrent",
+        91: "Buffer battery empty",
+        92: "Powerstage, filament failed",
+        93: "Powerstage, filament undercurrent",
+        94: "Powerstage, high voltage failed",
+        95: "Chopper failed",
+        104: "External warning lamp failed",
+        105: "Temperature supervision generator",
+        106: "Warm-up necessary",
+        107: "Keypad error",
+        108: "Power failure (low voltage)",
+        109: "Warm-up! 0=No",
+        111: "Chopper output voltage failed",
+        112: "Absolute overcurrent monitoring",
+        114: "Relative overvoltage monitoring",
+        115: "Maximum test voltage exceeded",
+        116: "Warm-up terminated after 3 attempts",
+        117: "Warm-up aborted. Try again",
+        118: "Push START button",
+        119: "Warm-up program completed. ENTER",
+        121: "Observe warm-up instructions! ENTER",
+        123: "Bypass charging resistor faulty",
+    }
 
     def __init__(self, tty_name, mock: bool = False):
         """Открыть соединение с источником.
@@ -120,24 +181,27 @@ class HWSource(object):
         """Включить высокое напряжение.
 
         Если устройство требует прогрева (код ошибки 106), выполняет
-        warmup() и повторяет попытку включения.
+        warmup() и повторяет попытку включения (не более 3 раз).
 
         Raises:
-            RuntimeError: При любой другой ошибке от устройства.
+            RuntimeError: При ошибке от устройства или исчерпании попыток.
         """
         if self.mock:
             return
         logging.debug('Source.on_high_voltage() starting...')
-        self.serial_port.write("HV:1\n".encode())
-        error = self.get_error()
-        if error is not None:
+        for attempt in range(3):
+            self.serial_port.write("HV:1\n".encode())
+            error = self.get_error()
+            if error is None:
+                break
             if error['code'] == 106:
-                logging.info('Source.on_high_voltage: warm-up required')
+                logging.info('Source.on_high_voltage: warm-up required (attempt %d)', attempt + 1)
                 self.warmup()
-                self.on_high_voltage()
             else:
                 logging.error("Source.on_high_voltage() error: {}".format(error))
                 raise RuntimeError("Source.on_high_voltage() error: {}".format(error))
+        else:
+            raise RuntimeError("Source.on_high_voltage(): warm-up required after 3 attempts")
 
         self.wait_for_high_voltage()
         self.wait_for_current()
@@ -304,11 +368,8 @@ class HWSource(object):
         """
         if timer is None or value is None:
             return None
-        elapsed = time() - timer
-        if elapsed < CACHE_TTL:
+        if time() - timer < CACHE_TTL:
             return value
-        if elapsed < RATE_LIMIT:
-            sleep(RATE_LIMIT - elapsed)
         return None
 
     # ------------------------------------------------------------------
@@ -631,69 +692,6 @@ class HWSource(object):
             dict | None: Словарь ``{'code': int, 'message': str}``
             или None если ошибок нет.
         """
-        status_strings = {
-            33: "Cooling system failed",
-            35: "Interlock open",
-            37: "Absolute undervoltage monitoring",
-            38: "Absolute overvoltage monitoring",
-            39: "Absolute undercurrent monitoring",
-            40: "Ground current has released",
-            41: "Overcurrent anode has released",
-            43: "Extern STOP",
-            44: "Focus change-over switch defect",
-            46: "EMERGENCY-STOP",
-            47: "Preselection exceeding rated power",
-            48: "Overcurrent cathode has released",
-            50: "Tube overpower",
-            51: "Preselection out of range",
-            52: "Presel. exceeding rated generator current",
-            53: "High voltage lamp defective",
-            55: "Relative overcurrent monitoring",
-            56: "Relative undervoltage monitoring",
-            57: "Wrong tube type",
-            58: "Not programmed",
-            60: "Relative undercurrent monitoring",
-            61: "Chopper overcurrent",
-            62: "Overtemperature anode",
-            63: "Door contact 1 and 2 open",
-            64: "Door contact 1 open",
-            65: "Door contact 2 open",
-            66: "Exposuretime = 0",
-            72: "Preselection out of range, too low",
-            74: "High voltage locked",
-            76: "Stand-By",
-            77: "Preselection too large",
-            78: "Overwrite program?",
-            80: "Temperature supervision power module",
-            82: "HV prim. overcurrent",
-            86: "HV contactor faulty",
-            87: "Flash lamp faulty",
-            88: "Chopper temperature",
-            89: "Filament primary overcurrent",
-            90: "Filament primary undercurrent",
-            91: "Buffer battery empty",
-            92: "Powerstage, filament failed",
-            93: "Powerstage, filament undercurrent",
-            94: "Powerstage, high voltage failed",
-            95: "Chopper failed",
-            104: "External warning lamp failed",
-            105: "Temperature supervision generator",
-            106: "Warm-up necessary",
-            107: "Keypad error",
-            108: "Power failure (low voltage)",
-            109: "Warm-up! 0=No",
-            111: "Chopper output voltage failed",
-            112: "Absolute overcurrent monitoring",
-            114: "Relative overvoltage monitoring",
-            115: "Maximum test voltage exceeded",
-            116: "Warm-up terminated after 3 attempts",
-            117: "Warm-up aborted. Try again",
-            118: "Push START button",
-            119: "Warm-up program completed. ENTER",
-            121: "Observe warm-up instructions! ENTER",
-            123: "Bypass charging resistor faulty",
-        }
-
         self.serial_port.write("SR:12\n".encode())
         answer = self.get_data_string()
         try:
@@ -703,7 +701,7 @@ class HWSource(object):
             return None
 
         if error_code != 0:
-            message = status_strings.get(error_code, "Unknown error code {}".format(error_code))
+            message = self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))
             return {'code': error_code, 'message': message}
         return None
 
@@ -821,9 +819,9 @@ class HWSource(object):
         """
         res = {}
         handlers = {
-            'set_voltage': lambda v: self.set_voltage(v),
-            'set_current': lambda v: self.set_current(v),
-            'set_power':   lambda v: self.set_power(v),
+            'set_voltage': self.set_voltage,
+            'set_current': self.set_current,
+            'set_power':   self.set_power,
         }
 
         for option, value in options_dict.items():
