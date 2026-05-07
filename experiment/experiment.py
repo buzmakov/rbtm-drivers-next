@@ -468,29 +468,77 @@ def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, lock=None):
     files = {'file': s.getvalue()}
     if lock is not None:
         lock.acquire()
-    p = mp.Process(target=send_to_storage, args=(STORAGE_FRAMES_URI, data, lock, files))
-    p.start()
+    try:
+        p = mp.Process(target=send_to_storage, args=(STORAGE_FRAMES_URI, data, lock, files))
+        p.start()
+    except Exception:
+        if lock is not None:
+            lock.release()
+        raise
 
 
 def send_to_storage(storage_uri, data, lock=None, files=None):
+    max_retries = 3
+    retry_delay = 5  # seconds between attempts
+    last_error = None
     try:
-        try:
-            storage_resp = requests.post(storage_uri, files=files, data=data)
-        except Exception as e:
-            raise ModExpError(error='Problems with storage', exception_message='Could not send to storage: {}'.format(str(e)))
+        for attempt in range(max_retries):
+            try:
+                storage_resp = requests.post(storage_uri, files=files, data=data, timeout=120)
+            except Exception as e:
+                last_error = ModExpError(
+                    error='Problems with storage',
+                    exception_message='Could not send to storage (attempt {}/{}): {}'.format(
+                        attempt + 1, max_retries, str(e)))
+                logging.warning('send_to_storage: attempt {}/{} failed: {}'.format(
+                    attempt + 1, max_retries, str(e)))
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
 
-        try:
-            storage_resp_dict = json.loads(storage_resp.content)
-        except (ValueError, TypeError):
-            raise ModExpError(error='Problems with storage', exception_message='Storage\'s response is not JSON')
+            try:
+                storage_resp_dict = json.loads(storage_resp.content)
+            except (ValueError, TypeError):
+                last_error = ModExpError(
+                    error='Problems with storage',
+                    exception_message='Storage\'s response is not JSON (attempt {}/{})'.format(
+                        attempt + 1, max_retries))
+                logging.warning('send_to_storage: response not JSON on attempt {}/{}'.format(
+                    attempt + 1, max_retries))
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
 
-        if 'result' not in storage_resp_dict:
-            raise ModExpError(error='Problems with storage',
-                              exception_message="Storage's response has incorrect format (no 'result' key)")
+            if 'result' not in storage_resp_dict:
+                last_error = ModExpError(
+                    error='Problems with storage',
+                    exception_message="Storage's response has incorrect format (no 'result' key), attempt {}/{}".format(
+                        attempt + 1, max_retries))
+                logging.warning('send_to_storage: no "result" key on attempt {}/{}'.format(
+                    attempt + 1, max_retries))
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
 
-        if storage_resp_dict['result'] != 'success':
-            raise ModExpError(error='Problems with storage',
-                              exception_message='Storage\'s response: ' + str(storage_resp_dict['result']))
+            if storage_resp_dict['result'] != 'success':
+                last_error = ModExpError(
+                    error='Problems with storage',
+                    exception_message='Storage\'s response: {} (attempt {}/{})'.format(
+                        str(storage_resp_dict['result']), attempt + 1, max_retries))
+                logging.warning('send_to_storage: non-success result on attempt {}/{}: {}'.format(
+                    attempt + 1, max_retries, storage_resp_dict['result']))
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
+
+            # Success
+            logging.debug('send_to_storage: success on attempt {}/{}'.format(attempt + 1, max_retries))
+            return
+
+        # All retries exhausted
+        raise last_error or ModExpError(
+            error='Problems with storage',
+            exception_message='All {} retries exhausted'.format(max_retries))
     finally:
         if lock is not None:
             lock.release()
