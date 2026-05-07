@@ -2,7 +2,7 @@ import datetime
 import time
 import json
 
-from .experiment import ModExpError, Experiment, create_event, send_message_to_storage_webpage
+from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
 # from drivers.Tomograph.Tomograph import HWTomograph
 from .redis_proxy import RedisProxy
@@ -17,13 +17,14 @@ class HWTomograph:
 class Tomograph:
     def __init__(self, mock=True, redis_host='redis', redis_port=6379, redis_db=0):
         # Используем RedisProxy для инициализации HWTomograph
-        HWTomographProxy = RedisProxy.create(HWTomograph, 
-                                     redis_host=redis_host, 
-                                     redis_port=redis_port, 
-                                     redis_db=redis_db, 
+        HWTomographProxy = RedisProxy.create(HWTomograph,
+                                     redis_host=redis_host,
+                                     redis_port=redis_port,
+                                     redis_db=redis_db,
                                      )
         self.hwtomo = HWTomographProxy(mock=mock)
         self.current_experiment = None
+        self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
 
@@ -224,11 +225,25 @@ class Tomograph:
             self.current_experiment.run()
         except ModExpError as e:   # TODO: should we crashed here?
             event_for_send = e.to_event_dict(exp_id)
-            # stop_msg = e.stop_msg
         else:
             event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
-            # stop_msg = SUCCESSFUL_STOP_MSG
 
+        self.last_experiment_status = self.current_experiment.get_status()
         send_message_to_storage_webpage(event_for_send)
+        self.current_experiment = None
 
+    def carry_out_advanced_experiment(self, exp_param):
+        self.current_experiment = AdvancedExperiment(_tomograph=self, exp_param=exp_param)
+
+        exp_id = self.current_experiment.exp_id
+
+        try:
+            self.current_experiment.run()
+        except ModExpError as e:
+            event_for_send = e.to_event_dict(exp_id)
+        else:
+            event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
+
+        self.last_experiment_status = self.current_experiment.get_status()
+        send_message_to_storage_webpage(event_for_send)
         self.current_experiment = None

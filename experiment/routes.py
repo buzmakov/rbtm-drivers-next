@@ -1,5 +1,6 @@
 from flask import Blueprint, request, send_file, Response
 import io
+import time
 import numpy as np
 
 import threading
@@ -284,8 +285,8 @@ def experiment_start(tomo_num):
         return e.create_response()
 
     if exp_param['advanced']:
-        pass
-        # thr = threading.Thread(target=carry_out_advanced_experiment, args=(tomograph, exp_param))
+        thr = threading.Thread(target=tomograph.carry_out_advanced_experiment, args=(exp_param,))
+        thr.start()
     else:
         thr = threading.Thread(target=tomograph.carry_out_simple_experiment, args=(exp_param,))
         thr.start()
@@ -302,6 +303,73 @@ def experiment_stop(tomo_num):
         tomograph.current_experiment.stop_exception = ModExpError(error=exp_stop_reason_txt, stop_msg=SOMEONE_STOP_MSG)
 
     return create_response(True)
+
+
+@bp_tomograph.route('/experiment/status', methods=['GET'])
+def experiment_status(tomo_num):
+    """Возвращает статус текущего или последнего завершённого эксперимента."""
+    exp = tomograph.current_experiment
+    if exp is not None:
+        status = exp.get_status()
+        running = True
+    elif tomograph.last_experiment_status is not None:
+        status = tomograph.last_experiment_status
+        running = False
+    else:
+        return create_response(success=True, result={
+            'running': False,
+            'frame_num': 0,
+            'total_frames': 0,
+            'progress_pct': 0.0,
+            'current_mode': 'none',
+            'current_angle': 0.0,
+            'elapsed_sec': 0.0,
+            'timeline': [],
+        })
+
+    total = status.get('total_frames', 0)
+    frame_num = status.get('frame_num', 0)
+    progress_pct = round(frame_num / total * 100, 1) if total > 0 else 0.0
+
+    start_time = status.get('start_time')
+    elapsed_sec = round(time.time() - start_time, 1) if start_time else 0.0
+
+    return create_response(success=True, result={
+        'running': running,
+        'frame_num': frame_num,
+        'total_frames': total,
+        'progress_pct': progress_pct,
+        'current_mode': status.get('current_mode', 'unknown'),
+        'current_angle': status.get('current_angle', 0.0),
+        'elapsed_sec': elapsed_sec,
+        'timeline': status.get('timeline', []),
+    })
+
+
+@bp_tomograph.route('/experiment/last-frame', methods=['GET'])
+def experiment_last_frame(tomo_num):
+    """Возвращает последний снятый кадр как npz (uint16, downsampled)."""
+    exp = tomograph.current_experiment
+    if exp is None:
+        return create_response(success=False, error='No experiment running')
+
+    last_frame = exp.last_frame
+    if last_frame is None:
+        return create_response(success=False, error='No frame captured yet')
+
+    try:
+        arr = last_frame.astype(np.uint16)
+        buf = io.BytesIO()
+        np.savez_compressed(buf,
+                            data=arr,
+                            width=np.array(arr.shape[1]),
+                            height=np.array(arr.shape[0]))
+        buf.seek(0)
+        return Response(buf.read(),
+                        mimetype='application/octet-stream',
+                        headers={'Content-Disposition': 'attachment; filename=last_frame.npz'})
+    except Exception as e:
+        return create_response(success=False, error=f'Could not serialize frame: {e}')
 
 
 # functions
