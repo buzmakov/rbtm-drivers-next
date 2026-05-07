@@ -312,12 +312,15 @@ def experiment_status(tomo_num):
     if exp is not None:
         status = exp.get_status()
         running = True
+        exp_id = exp.exp_id
     elif tomograph.last_experiment_status is not None:
         status = tomograph.last_experiment_status
         running = False
+        exp_id = status.get('exp_id', '')
     else:
         return create_response(success=True, result={
             'running': False,
+            'exp_id': '',
             'frame_num': 0,
             'total_frames': 0,
             'progress_pct': 0.0,
@@ -336,6 +339,7 @@ def experiment_status(tomo_num):
 
     return create_response(success=True, result={
         'running': running,
+        'exp_id': str(exp_id),
         'frame_num': frame_num,
         'total_frames': total,
         'progress_pct': progress_pct,

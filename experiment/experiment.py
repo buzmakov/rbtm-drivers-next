@@ -94,6 +94,7 @@ class Experiment:
         self.last_frame = None  # numpy array последнего снятого кадра (для preview)
         self._start_time = None
         self.status_dict = {
+            'exp_id': str(self.exp_id),
             'frame_num': 0,
             'total_frames': frames_total_count,
             'current_mode': 'pending',
@@ -105,7 +106,8 @@ class Experiment:
     def _update_status(self, mode=None, angle=None):
         """Обновить status_dict потокобезопасно."""
         with self._status_lock:
-            self.status_dict['frame_num'] = self.frame_num
+            # frame_num ещё не инкрементирован — показываем уже снятых = frame_num + 1
+            self.status_dict['frame_num'] = self.frame_num + 1
             if mode is not None:
                 self.status_dict['current_mode'] = mode
             if angle is not None:
@@ -277,6 +279,7 @@ class AdvancedExperiment:
         self.last_frame = None
         self._start_time = None
         self.status_dict = {
+            'exp_id': str(self.exp_id),
             'frame_num': 0,
             'total_frames': frames_total,
             'current_mode': 'pending',
@@ -287,7 +290,8 @@ class AdvancedExperiment:
 
     def _update_status(self, mode=None, angle=None):
         with self._status_lock:
-            self.status_dict['frame_num'] = self.frame_num
+            # frame_num ещё не инкрементирован — показываем уже снятых = frame_num + 1
+            self.status_dict['frame_num'] = self.frame_num + 1
             if mode is not None:
                 self.status_dict['current_mode'] = mode
             if angle is not None:
