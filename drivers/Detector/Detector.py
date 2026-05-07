@@ -24,6 +24,7 @@ from .. import tomo_logger
 # @traced(tomo_logger.logger)
 PIXEL_SIZES = {
     'MH110XC-KK-FA': 9.0e-3,  # pixel size in mm
+    'MJ150XR-GP-FA-GO': 4.25e-3,  # pixel size in mm
 }
 DEFAULT_PIXEL_SIZE = 4.25e-3  # pixel size in mm
 
@@ -94,6 +95,7 @@ class HWDetector(object):
         """
         :param: exposure: exposition in seconds
         """
+        import numpy as np
         data = None
         try:
             self.cam.set_exposure(int(round(exposure * 1e6)))
@@ -103,16 +105,20 @@ class HWDetector(object):
             for frame_numb in range(number_frames):
                 self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6 + 5e5))
                 if frame_numb == 0:
-                    data = img.get_image_data_numpy()
+                    # Накапливаем в uint32, чтобы избежать переполнения uint16
+                    data = img.get_image_data_numpy().astype(np.uint32)
                 else:
-                    data += img.get_image_data_numpy()  # TODO: check overflow
+                    data += img.get_image_data_numpy().astype(np.uint32)
             self.cam.stop_acquisition()
 
         except xiapi.Xi_error as err:
             tomo_logger.logger.error("Detector.get_frame() failed " + str(err))
             raise RuntimeError("Detector.get_frame() failed " + str(err))
 
-        return data
+        if data is None:
+            raise RuntimeError("Detector.get_frame() failed: no frames captured")
+        # Clip и привести обратно к uint16
+        return np.clip(data, 0, 65535).astype(np.uint16)
 
     def get_state(self, options=None):
         if options is None:

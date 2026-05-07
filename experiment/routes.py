@@ -181,7 +181,12 @@ def detector_get_hous_temperature(tomo_num):
 
 @bp_tomograph.route('/detector/model', methods=['GET'])
 def detector_get_model(tomo_num):
-    return call_method_create_response(tomo_num, method_name='get_detector_model')
+    try:
+        model = tomograph.get_detector_model()
+        pixel_size = tomograph.get_detector_pixel_size()
+        return create_response(success=True, result={'model': model, 'pixel_size_mm': pixel_size})
+    except ModExpError as e:
+        return e.create_response()
 
 
 @bp_tomograph.route('/detector/get-frame-preview', methods=['POST'])
