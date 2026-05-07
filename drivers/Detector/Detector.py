@@ -56,12 +56,117 @@ class HWDetector(object):
             tomo_logger.logger.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
 
+        # --- Persistent acquisition state ---
+        # Pre-allocate Image once to avoid per-frame memory allocation
+        self._img = xiapi.Image()
+        self._acquisition_active = False
+        self._trigger_mode = False          # True = XI_TRG_SOFTWARE mode
+        self._current_exposure_us = None
+
+    # ------------------------------------------------------------------
+    # Persistent acquisition API
+    # ------------------------------------------------------------------
+
+    def start_acquisition(self, exposure, use_trigger=True):
+        """Start persistent acquisition for a series of frames.
+
+        Call this once before a batch of get_frames() calls for best
+        performance. While active, get_frames() skips start/stop overhead.
+
+        :param exposure: exposition in seconds (fixed for the whole batch)
+        :param use_trigger: True  — software-trigger mode: each get_frames()
+                                    fires XI_TRG_SOFTWARE (~μs overhead).
+                            False — free-run mode: frames arrive continuously,
+                                    get_frames() just reads them.
+        :raises RuntimeError: if camera rejects the configuration.
+                              The camera is left in a clean state (trigger OFF,
+                              acquisition stopped) so legacy get_frames() will
+                              still work.
+        """
+        if self._acquisition_active:
+            tomo_logger.logger.warning(
+                "Detector.start_acquisition() called while already active — ignored"
+            )
+            return
+
+        exposure_us = int(round(exposure * 1e6))
+
+        try:
+            self.cam.set_exposure(exposure_us)
+            self._current_exposure_us = exposure_us
+
+            if use_trigger:
+                # Each frame starts only on explicit set_trigger_software(1)
+                self.cam.set_trigger_source("XI_TRG_SOFTWARE")
+                self.cam.set_trigger_selector("XI_TRG_SEL_FRAME_START")
+                # Accept next trigger while sensor reads out previous frame
+                self.cam.set_trigger_overlap("XI_TRG_OVERLAP_READ_OUT")
+
+            self.cam.start_acquisition()
+            self._acquisition_active = True
+            self._trigger_mode = use_trigger
+
+            tomo_logger.logger.info(
+                "Detector: persistent acquisition started "
+                "(exposure=%.3f s, trigger=%s)",
+                exposure, "SOFTWARE" if use_trigger else "FREE_RUN"
+            )
+
+        except xiapi.Xi_error as err:
+            tomo_logger.logger.error(
+                "Detector.start_acquisition() failed %s — falling back to legacy mode",
+                str(err)
+            )
+            # Clean up: restore free-run so legacy mode is not broken
+            try:
+                self.cam.set_trigger_source("XI_TRG_OFF")
+            except Exception:
+                pass
+            self._acquisition_active = False
+            self._trigger_mode = False
+            raise RuntimeError("Detector.start_acquisition() failed " + str(err))
+
+    def stop_acquisition(self):
+        """Stop persistent acquisition.
+
+        Safe to call even if acquisition is not active.
+        After this, get_frames() falls back to legacy (start/stop per call).
+        """
+        if not self._acquisition_active:
+            return
+        try:
+            self.cam.stop_acquisition()
+        except xiapi.Xi_error as err:
+            tomo_logger.logger.error(
+                "Detector.stop_acquisition() failed %s", str(err)
+            )
+        finally:
+            self._acquisition_active = False
+            self._trigger_mode = False
+            # Restore free-run so legacy get_frames() works without trigger
+            try:
+                self.cam.set_trigger_source("XI_TRG_OFF")
+            except Exception:
+                pass
+            tomo_logger.logger.info("Detector: persistent acquisition stopped")
+
+    # ------------------------------------------------------------------
+    # Device lifecycle
+    # ------------------------------------------------------------------
+
     def close(self):
         try:
+            if self._acquisition_active:
+                self.cam.stop_acquisition()
+                self._acquisition_active = False
             self.cam.close_device()
         except xiapi.Xi_error as err:
             tomo_logger.logger.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
+
+    # ------------------------------------------------------------------
+    # Camera parameters
+    # ------------------------------------------------------------------
 
     def get_model(self):
         try:
@@ -91,34 +196,98 @@ class HWDetector(object):
     def get_exposure(self):
         return self.cam.get_exposure() / 1e6
 
+    # ------------------------------------------------------------------
+    # Frame capture
+    # ------------------------------------------------------------------
+
     def get_frames(self, exposure, number_frames=1):
-        """
-        :param: exposure: exposition in seconds
+        """Capture and return frames as a uint16 numpy array.
+
+        :param exposure: exposition in seconds
+        :param number_frames: number of frames to sum (accumulate in uint32)
+
+        Behaviour depends on acquisition state:
+
+        * **Persistent + trigger mode** (after start_acquisition(use_trigger=True)):
+          Fires XI_TRG_SOFTWARE per frame — minimal overhead (~μs).
+          If exposure changed, applies set_exposure_direct() without stop/start.
+
+        * **Persistent + free-run mode** (after start_acquisition(use_trigger=False)):
+          Reads frames directly — no per-frame start/stop overhead.
+          If exposure changed, applies set_exposure_direct() without stop/start.
+
+        * **Legacy mode** (no start_acquisition() call or after stop_acquisition()):
+          Classic start_acquisition → get_image × N → stop_acquisition per call.
+          Always correct, slower by ~100–250 ms per call.
         """
         import numpy as np
+        exposure_us = int(round(exposure * 1e6))
         data = None
-        try:
-            self.cam.set_exposure(int(round(exposure * 1e6)))
-            img = xiapi.Image()
-            self.cam.start_acquisition()
 
-            for frame_numb in range(number_frames):
-                self.cam.get_image(img, timeout=int(exposure * 1.5 * 1e6 + 5e5))
-                if frame_numb == 0:
-                    # Накапливаем в uint32, чтобы избежать переполнения uint16
-                    data = img.get_image_data_numpy().astype(np.uint32)
-                else:
-                    data += img.get_image_data_numpy().astype(np.uint32)
-            self.cam.stop_acquisition()
+        try:
+            if self._acquisition_active:
+                # ── Optimised path ──────────────────────────────────────
+                if exposure_us != self._current_exposure_us:
+                    # Change exposure without restarting acquisition
+                    self.cam.set_exposure_direct(exposure_us)
+                    self._current_exposure_us = exposure_us
+
+                timeout_us = int(exposure_us * 1.5 + 500_000)
+
+                for frame_numb in range(number_frames):
+                    if self._trigger_mode:
+                        # Fire the software trigger — camera starts exposing NOW
+                        self.cam.set_trigger_software(1)
+                    self.cam.get_image(self._img, timeout=timeout_us)
+                    if frame_numb == 0:
+                        data = self._img.get_image_data_numpy().astype(np.uint32)
+                    else:
+                        data += self._img.get_image_data_numpy().astype(np.uint32)
+
+            else:
+                # ── Legacy path (fallback) ───────────────────────────────
+                self.cam.set_exposure(exposure_us)
+                self._current_exposure_us = exposure_us
+                timeout_us = int(exposure_us * 1.5 + 500_000)
+
+                self.cam.start_acquisition()
+                for frame_numb in range(number_frames):
+                    self.cam.get_image(self._img, timeout=timeout_us)
+                    if frame_numb == 0:
+                        data = self._img.get_image_data_numpy().astype(np.uint32)
+                    else:
+                        data += self._img.get_image_data_numpy().astype(np.uint32)
+                self.cam.stop_acquisition()
 
         except xiapi.Xi_error as err:
+            # If persistent acquisition broke mid-series — mark it stopped so
+            # subsequent calls fall back to legacy mode automatically.
+            if self._acquisition_active:
+                tomo_logger.logger.warning(
+                    "Detector: error during persistent acquisition — "
+                    "resetting to legacy mode"
+                )
+                self._acquisition_active = False
+                self._trigger_mode = False
+                try:
+                    self.cam.stop_acquisition()
+                except Exception:
+                    pass
+                try:
+                    self.cam.set_trigger_source("XI_TRG_OFF")
+                except Exception:
+                    pass
             tomo_logger.logger.error("Detector.get_frame() failed " + str(err))
             raise RuntimeError("Detector.get_frame() failed " + str(err))
 
         if data is None:
             raise RuntimeError("Detector.get_frame() failed: no frames captured")
-        # Clip и привести обратно к uint16
+        # Clip and convert back to uint16
         return np.clip(data, 0, 65535).astype(np.uint16)
+
+    # ------------------------------------------------------------------
+    # State
+    # ------------------------------------------------------------------
 
     def get_state(self, options=None):
         if options is None:
