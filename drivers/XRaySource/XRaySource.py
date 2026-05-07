@@ -1,29 +1,44 @@
 import serial
 import logging
-# from cachetools.func import ttl_cache
 from time import sleep, time
 import atexit
 
 TIMEOUT = 10
 
-GLOBAL_READ_TIMEOUT = 5
-LOCAL_READ_TIMEOUT = 10
+CACHE_TTL = 10      # секунды: кэшировать значение не дольше
+RATE_LIMIT = 5      # секунды: минимальный интервал между запросами
 
 
 class HWSource(object):
+    """Драйвер рентгеновского источника ISOVOLT 3003 (Seifert/GE).
+
+    Управление через RS-232 (9600 8N1). Протокол ASCII: команда + '\\n',
+    ответ начинается с '*', заканчивается '\\r'. Коды ошибок читаются
+    командой SR:12.
+    """
+
     def __init__(self, tty_name, mock: bool = False):
+        """Открыть соединение с источником.
+
+        Args:
+            tty_name: Путь к serial-порту, например '/dev/ttyUSB0'.
+            mock: Если True — работает без реального устройства.
+        """
         logging.debug('Source.__init__ starting...')
         self.mock = mock
         self.tty_name = tty_name
-        self.timers_global = None
         self.timer_voltage_nominal = None
         self.timer_voltage_actual = None
         self.timer_current_nominal = None
         self.timer_current_actual = None
+        self.timer_power_nominal = None
+        self.timer_power_actual = None
         self.last_voltage_nominal = None
         self.last_voltage_actual = None
         self.last_current_nominal = None
         self.last_current_actual = None
+        self.last_power_nominal = None
+        self.last_power_actual = None
 
         self.device_id = None
         self.tube_name = None
@@ -31,56 +46,85 @@ class HWSource(object):
         if mock:
             self.serial_port = None
         else:
-            self.serial_port = serial.Serial(self.tty_name, timeout=TIMEOUT)
-            
+            self.serial_port = serial.Serial(
+                self.tty_name,
+                baudrate=9600,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=TIMEOUT,
+                rtscts=False,
+                dsrdtr=False,
+            )
+            self.serial_port.dtr = False
+            self.serial_port.rts = False
+
         logging.debug('Source.__init__ finished.')
         atexit.register(self.close)
 
     def close(self):
+        """Закрыть serial-порт."""
         if self.mock:
             return
         self.serial_port.close()
 
+    # ------------------------------------------------------------------
+    # Ожидание готовности
+    # ------------------------------------------------------------------
+
     def wait_for_high_voltage(self):
+        """Ожидать включения высокого напряжения (до 10 секунд)."""
         if self.mock:
             return
         n = 0
-        while n < 10 and not self.is_on_high_volatge():
+        while n < 10 and not self.is_on_high_voltage():
             sleep(1)
-            n = n + 1
+            n += 1
 
     def wait_for_high_voltage_down(self):
+        """Ожидать выключения высокого напряжения (до 10 секунд)."""
         if self.mock:
             return
         n = 0
-        while n < 10 and self.is_on_high_volatge():
+        while n < 10 and self.is_on_high_voltage():
             sleep(1)
-            n = n + 1
+            n += 1
 
     def wait_for_voltage(self):
+        """Ожидать стабилизации напряжения (до 10 секунд)."""
         if self.mock:
             return
-        if not self.is_on_high_volatge():
+        if not self.is_on_high_voltage():
             return
-
         n = 0
         while n < 10 and not self.get_status()['power status']['voltage kv norm']:
             sleep(1)
-            n = n + 1
+            n += 1
 
     def wait_for_current(self):
+        """Ожидать стабилизации тока (до 10 секунд)."""
         if self.mock:
             return
-        if not self.is_on_high_volatge():
+        if not self.is_on_high_voltage():
             return
-
         n = 0
         while n < 10 and not self.get_status()['power status']['current ma norm']:
             sleep(1)
-            n = n + 1
-        return
+            n += 1
+
+    # ------------------------------------------------------------------
+    # Управление высоким напряжением
+    # ------------------------------------------------------------------
 
     def on_high_voltage(self):
+        """Включить высокое напряжение.
+
+        Если устройство требует прогрева (код ошибки 106), выполняет
+        warmup() и повторяет попытку включения.
+
+        Raises:
+            RuntimeError: При любой другой ошибке от устройства.
+        """
         if self.mock:
             return
         logging.debug('Source.on_high_voltage() starting...')
@@ -88,7 +132,7 @@ class HWSource(object):
         error = self.get_error()
         if error is not None:
             if error['code'] == 106:
-                logging.info('Source.on_high_voltage warming needed')
+                logging.info('Source.on_high_voltage: warm-up required')
                 self.warmup()
                 self.on_high_voltage()
             else:
@@ -98,33 +142,14 @@ class HWSource(object):
         self.wait_for_high_voltage()
         self.wait_for_current()
         self.wait_for_voltage()
-
         logging.debug('Source.on_high_voltage() finished.')
 
-    def warmup(self):
-        if self.mock:
-            return
-        logging.debug('Source.warmup() starting...')
-        voltage = self.get_nominal_voltage()
-        self.serial_port.write("WU:4,{}\n".format(
-            str(int(round(voltage))).zfill(3)).encode())
-        error = self.get_error()
-
-        self.serial_port.write("HV:1\n".encode())
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.warmup() error: {}".format(error))
-            raise RuntimeError("Source.warmup() error: {}".format(error))
-
-        while self.get_status()['warming status']['in progress'] or \
-                self.get_status()['warming status']['warming from kb'] or \
-                self.get_status()['warming status']['warming from pc'] or \
-                self.get_status()['power status']['voltage kv norm']:
-            sleep(5)
-
-        logging.debug('Source.warmup() finished.')
-
     def off_high_voltage(self):
+        """Выключить высокое напряжение.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
             return
         logging.debug('Source.off_high_voltage() starting...')
@@ -137,67 +162,173 @@ class HWSource(object):
         self.wait_for_high_voltage_down()
         logging.debug('Source.off_high_voltage() finished.')
 
-    def is_on_high_volatge(self):
+    def is_on_high_voltage(self):
+        """Вернуть True, если высокое напряжение включено."""
         logging.debug('Source.is_on_high_voltage() starting...')
         status = self.get_status()
         logging.debug('Source.is_on_high_voltage() finished.')
         return status['power status']['high voltage on']
 
+    # Backward-compat alias (опечатка в старом коде)
+    is_on_high_volatge = is_on_high_voltage
+
+    def warmup(self):
+        """Запустить программу прогрева трубки (WU).
+
+        Читает установленное напряжение, отправляет команду прогрева,
+        включает HV и ждёт завершения.
+
+        Raises:
+            RuntimeError: При ошибке включения HV после прогрева.
+        """
+        if self.mock:
+            return
+        logging.debug('Source.warmup() starting...')
+        voltage = self.get_nominal_voltage()
+        self.serial_port.write("WU:4,{}\n".format(
+            str(int(round(voltage))).zfill(3)).encode())
+        error = self.get_error()
+        if error is not None:
+            logging.error("Source.warmup() WU error: {}".format(error))
+            raise RuntimeError("Source.warmup() WU error: {}".format(error))
+
+        self.serial_port.write("HV:1\n".encode())
+        error = self.get_error()
+        if error is not None:
+            logging.error("Source.warmup() HV error: {}".format(error))
+            raise RuntimeError("Source.warmup() HV error: {}".format(error))
+
+        while True:
+            status = self.get_status()
+            ws = status['warming status']
+            ps = status['power status']
+            if not (ws['in progress'] or ws['warming from kb'] or
+                    ws['warming from pc'] or ps['voltage kv norm']):
+                break
+            sleep(5)
+
+        logging.debug('Source.warmup() finished.')
+
+    # ------------------------------------------------------------------
+    # Статус
+    # ------------------------------------------------------------------
+
     def read_status_word(self, word_number):
-        logging.debug('Source.read_status_word() starting...')
+        """Прочитать слово состояния SR:nn.
+
+        Args:
+            word_number: Номер слова (1, 6, 12, 30).
+
+        Returns:
+            int: Числовое значение слова состояния.
+        """
+        logging.debug('Source.read_status_word(%d) starting...', word_number)
         if word_number not in [1, 6, 12, 30]:
-            logging.error("Source.read_status_word() error: {}".format('unknown status word number'))
+            logging.error("Source.read_status_word(): unknown word number %d", word_number)
 
         self.serial_port.write("SR:{}\n".format(str(word_number).zfill(2)).encode())
         answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.read_status_word() error: {}".format(error))
-
-        logging.debug('Source.read_status_word() finished.')
+        logging.debug('Source.read_status_word(%d) finished.', word_number)
         return self.get_number(answer)
 
     def get_status(self):
+        """Прочитать полный статус устройства (SW1, SW6, SW30).
+
+        Returns:
+            dict: Словарь со структурой::
+
+                {
+                    'power status': {
+                        'external pc control': bool,
+                        'high voltage on': bool,
+                        'cooling system ok': bool,
+                        'buffer battery ok': bool,
+                        'current ma norm': bool,
+                        'voltage kv norm': bool,
+                    },
+                    'warming status': {
+                        'in progress': bool,
+                        'warming interrupted': bool,
+                        'warming from pc': bool,
+                        'warming from kb': bool,
+                    },
+                    'interlock status': {
+                        'door 1 ok': bool,
+                        'door 2 ok': bool,
+                        'extern stop ok': bool,
+                        'emergency stop ok': bool,
+                    }
+                }
+        """
         sw_1 = self.read_status_word(1)
         res = {'power status': {
-            'external pc control': not sw_1 & 128 == 0,
-            'high voltage on': not sw_1 & 64 == 0,
-            'cooling system ok': sw_1 & 32 == 0,
-            'buffer battery ok': sw_1 & 16 == 0,
-            'current ma norm': sw_1 & 8 == 0,
-            'voltage kv norm': sw_1 & 4 == 0
+            'external pc control': bool(sw_1 & 128),
+            'high voltage on':     bool(sw_1 & 64),
+            'cooling system ok':   not bool(sw_1 & 32),
+            'buffer battery ok':   not bool(sw_1 & 16),
+            'current ma norm':     not bool(sw_1 & 8),
+            'voltage kv norm':     not bool(sw_1 & 4),
         }}
 
         sw_6 = self.read_status_word(6)
         res['warming status'] = {
-            'in progress': not sw_6 & 8 == 0,
-            'warming interrupted': not sw_6 & 4 == 0,
-            'warming from pc': not sw_6 & 2 == 0,
-            'warming from kb': not sw_6 & 1 == 0
+            'in progress':        bool(sw_6 & 8),
+            'warming interrupted': bool(sw_6 & 4),
+            'warming from pc':    bool(sw_6 & 2),
+            'warming from kb':    bool(sw_6 & 1),
         }
 
-        # sw_12 = self.read_status_word(12)
-        # res['Error status'] = status_strings[ord(sw_12)] if ord(sw_12) in status_strings else None
+        sw_30 = self.read_status_word(30)
+        res['interlock status'] = {
+            'door 1 ok':       not bool(sw_30 & 64),
+            'door 2 ok':       not bool(sw_30 & 32),
+            'extern stop ok':  not bool(sw_30 & 8),
+            'emergency stop ok': not bool(sw_30 & 4),
+        }
 
         return res
 
-    def check_timers(self, timer, value):
-        t = time()
-        if timer is None:
-            timer = time()
-        if t - timer < LOCAL_READ_TIMEOUT:
-            if value is not None:
-                return value
-        elif t - timer < GLOBAL_READ_TIMEOUT:
-            sleep(GLOBAL_READ_TIMEOUT - (t - timer))
+    # ------------------------------------------------------------------
+    # Кэширующий таймер
+    # ------------------------------------------------------------------
+
+    def _check_cache(self, timer, value):
+        """Вернуть закэшированное значение, если оно ещё актуально.
+
+        Args:
+            timer: Время последнего чтения (float) или None.
+            value: Последнее прочитанное значение.
+
+        Returns:
+            Закэшированное значение, если не истёк CACHE_TTL, иначе None.
+        """
+        if timer is None or value is None:
+            return None
+        elapsed = time() - timer
+        if elapsed < CACHE_TTL:
+            return value
+        if elapsed < RATE_LIMIT:
+            sleep(RATE_LIMIT - elapsed)
         return None
 
+    # ------------------------------------------------------------------
+    # Чтение параметров
+    # ------------------------------------------------------------------
+
     def get_nominal_voltage(self):
+        """Прочитать установленное напряжение (кВ).
+
+        Returns:
+            float: Напряжение в кВ.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
-            return 40
-        t = self.check_timers(self.timer_voltage_nominal, self.last_voltage_nominal)
-        if t is not None:
-            return t
+            return 40.0
+        cached = self._check_cache(self.timer_voltage_nominal, self.last_voltage_nominal)
+        if cached is not None:
+            return cached
 
         logging.debug('Source.get_nominal_voltage() starting...')
         self.serial_port.write("VN\n".encode())
@@ -207,18 +338,25 @@ class HWSource(object):
             logging.error("Source.get_nominal_voltage() error: {}".format(error))
             raise RuntimeError("Source.get_nominal_voltage() error: {}".format(error))
 
-        logging.debug('Source.get_nominal_voltage() finished.')
-        self.last_voltage_nominal = self.get_number(answer) / 1000.
+        self.last_voltage_nominal = self.get_number(answer) / 1000.0
         self.timer_voltage_nominal = time()
+        logging.debug('Source.get_nominal_voltage() finished.')
         return self.last_voltage_nominal
 
     def get_actual_voltage(self):
-        if self.mock:
-            return 40
+        """Прочитать фактическое напряжение (кВ).
 
-        t = self.check_timers(self.timer_voltage_actual, self.last_voltage_actual)
-        if t is not None:
-            return t
+        Returns:
+            float: Напряжение в кВ.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
+        if self.mock:
+            return 40.0
+        cached = self._check_cache(self.timer_voltage_actual, self.last_voltage_actual)
+        if cached is not None:
+            return cached
 
         logging.debug('Source.get_actual_voltage() starting...')
         self.serial_port.write("VA\n".encode())
@@ -228,18 +366,25 @@ class HWSource(object):
             logging.error("Source.get_actual_voltage() error: {}".format(error))
             raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
 
-        logging.debug('Source.get_actual_voltage() finished.')
-        self.last_voltage_actual = self.get_number(answer) / 1000.
+        self.last_voltage_actual = self.get_number(answer) / 1000.0
         self.timer_voltage_actual = time()
+        logging.debug('Source.get_actual_voltage() finished.')
         return self.last_voltage_actual
 
     def get_nominal_current(self):
-        if self.mock:
-            return 20
+        """Прочитать установленный ток (мА).
 
-        t = self.check_timers(self.timer_current_nominal, self.last_current_nominal)
-        if t is not None:
-            return t
+        Returns:
+            float: Ток в мА.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
+        if self.mock:
+            return 20.0
+        cached = self._check_cache(self.timer_current_nominal, self.last_current_nominal)
+        if cached is not None:
+            return cached
 
         logging.debug('Source.get_nominal_current() starting...')
         self.serial_port.write("CN\n".encode())
@@ -249,18 +394,27 @@ class HWSource(object):
             logging.error("Source.get_nominal_current() error: {}".format(error))
             raise RuntimeError("Source.get_nominal_current() error: {}".format(error))
 
-        logging.debug('Source.get_nominal_current() finished.')
-        self.last_current_nominal = self.get_number(answer) / 1000.
+        self.last_current_nominal = self.get_number(answer) / 1000.0
         self.timer_current_nominal = time()
+        logging.debug('Source.get_nominal_current() finished.')
         return self.last_current_nominal
 
     def get_actual_current(self):
+        """Прочитать фактический ток (мА).
+
+        Returns:
+            float: Ток в мА.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
-            return 20
-        t = self.check_timers(self.timer_current_actual, self.last_current_actual)
-        if t is not None:
-            return t
-        logging.debug('Source.get_actual_current) starting...')
+            return 20.0
+        cached = self._check_cache(self.timer_current_actual, self.last_current_actual)
+        if cached is not None:
+            return cached
+
+        logging.debug('Source.get_actual_current() starting...')
         self.serial_port.write("CA\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
@@ -268,22 +422,90 @@ class HWSource(object):
             logging.error("Source.get_actual_current() error: {}".format(error))
             raise RuntimeError("Source.get_actual_current() error: {}".format(error))
 
-        logging.debug('Source.get_actual_current() finished.')
-        self.last_current_actual = self.get_number(answer) / 1000.
+        self.last_current_actual = self.get_number(answer) / 1000.0
         self.timer_current_actual = time()
+        logging.debug('Source.get_actual_current() finished.')
         return self.last_current_actual
 
+    def get_nominal_power(self):
+        """Прочитать установленную мощность (Вт).
+
+        Returns:
+            float: Мощность в Вт.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
+        if self.mock:
+            return 800.0
+        cached = self._check_cache(self.timer_power_nominal, self.last_power_nominal)
+        if cached is not None:
+            return cached
+
+        logging.debug('Source.get_nominal_power() starting...')
+        self.serial_port.write("PN\n".encode())
+        answer = self.get_data_string()
+        error = self.get_error()
+        if error is not None:
+            logging.error("Source.get_nominal_power() error: {}".format(error))
+            raise RuntimeError("Source.get_nominal_power() error: {}".format(error))
+
+        self.last_power_nominal = self.get_number(answer) / 1000.0
+        self.timer_power_nominal = time()
+        logging.debug('Source.get_nominal_power() finished.')
+        return self.last_power_nominal
+
+    def get_actual_power(self):
+        """Прочитать фактическую мощность (Вт).
+
+        Returns:
+            float: Мощность в Вт.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
+        if self.mock:
+            return 800.0
+        cached = self._check_cache(self.timer_power_actual, self.last_power_actual)
+        if cached is not None:
+            return cached
+
+        logging.debug('Source.get_actual_power() starting...')
+        self.serial_port.write("PA\n".encode())
+        answer = self.get_data_string()
+        error = self.get_error()
+        if error is not None:
+            logging.error("Source.get_actual_power() error: {}".format(error))
+            raise RuntimeError("Source.get_actual_power() error: {}".format(error))
+
+        self.last_power_actual = self.get_number(answer) / 1000.0
+        self.timer_power_actual = time()
+        logging.debug('Source.get_actual_power() finished.')
+        return self.last_power_actual
+
+    # ------------------------------------------------------------------
+    # Установка параметров
+    # ------------------------------------------------------------------
+
     def set_voltage(self, voltage):
+        """Установить напряжение.
+
+        Args:
+            voltage (float): Напряжение в кВ.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
             return
         logging.debug('Source.set_voltage() starting...')
-        command = "SV:{}\n".format(str(voltage * 1000).zfill(6)).encode()
+        command = "SV:{}\n".format(str(int(round(voltage * 1000))).zfill(6)).encode()
         self.serial_port.write(command)
 
         error = self.get_error()
         if error is not None:
             if error['code'] == 106:
-                logging.info('Source.on_high_voltage warming needed')
+                logging.info('Source.set_voltage: warm-up required')
                 self.warmup()
                 self.on_high_voltage()
             else:
@@ -294,10 +516,18 @@ class HWSource(object):
         logging.debug('Source.set_voltage() finished.')
 
     def set_current(self, current):
+        """Установить ток.
+
+        Args:
+            current (float): Ток в мА.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
-            return 40
+            return
         logging.debug('Source.set_current() starting...')
-        command = "SC:{}\n".format(str(current * 1000).zfill(6)).encode()
+        command = "SC:{}\n".format(str(int(round(current * 1000))).zfill(6)).encode()
         self.serial_port.write(command)
 
         error = self.get_error()
@@ -308,12 +538,49 @@ class HWSource(object):
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
 
+    def set_power(self, power):
+        """Установить мощность.
+
+        Args:
+            power (float): Мощность в Вт.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
+        if self.mock:
+            return
+        logging.debug('Source.set_power() starting...')
+        command = "SP:{}\n".format(str(int(round(power * 1000))).zfill(6)).encode()
+        self.serial_port.write(command)
+
+        error = self.get_error()
+        if error is not None:
+            logging.error("Source.set_power() error: {}".format(error))
+            raise RuntimeError("Source.set_power() error: {}".format(error))
+
+        logging.debug('Source.set_power() finished.')
+
+    # ------------------------------------------------------------------
+    # Идентификация
+    # ------------------------------------------------------------------
+
     def get_id(self):
+        """Прочитать идентификатор генератора (команда ID).
+
+        Результат кэшируется до следующего вызова.
+
+        Returns:
+            str: Строка идентификатора.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
             return "Mock 40 20"
-        logging.debug('Source.get_id() starting...')
         if self.device_id is not None:
             return self.device_id
+
+        logging.debug('Source.get_id() starting...')
         self.serial_port.write("ID\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
@@ -321,175 +588,257 @@ class HWSource(object):
             logging.error("Source.get_id() error: {}".format(error))
             raise RuntimeError("Source.get_id() error: {}".format(error))
 
-        logging.debug('Source.get_id() finished.')
         self.device_id = answer
+        logging.debug('Source.get_id() finished.')
         return self.device_id
 
     def get_tube_name(self):
+        """Прочитать наименование трубки (команда XT).
+
+        Результат кэшируется до следующего вызова.
+
+        Returns:
+            str: Наименование трубки.
+
+        Raises:
+            RuntimeError: При ошибке от устройства.
+        """
         if self.mock:
-            return "Mock 40 20"
-        logging.debug('Source.get_nominal_voltage() starting...')
+            return "Mock Tube 40kV 20mA"
         if self.tube_name is not None:
             return self.tube_name
 
+        logging.debug('Source.get_tube_name() starting...')
         self.serial_port.write("XT\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
-            logging.error("Source.get_actual_voltage() error: {}".format(error))
-            raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
+            logging.error("Source.get_tube_name() error: {}".format(error))
+            raise RuntimeError("Source.get_tube_name() error: {}".format(error))
 
-        logging.debug('Source.get_actual_voltage() finished.')
-        self.device_id = answer
+        self.tube_name = answer
+        logging.debug('Source.get_tube_name() finished.')
         return self.tube_name
 
+    # ------------------------------------------------------------------
+    # Ошибки
+    # ------------------------------------------------------------------
+
     def get_error(self):
+        """Прочитать текущий код ошибки (SR:12).
+
+        Returns:
+            dict | None: Словарь ``{'code': int, 'message': str}``
+            или None если ошибок нет.
+        """
         status_strings = {
-            33: "Cooling system failed (Неисправность системы охлаждения)",
-            35: "Interlock open (Блокировка открыта)",
-            37: "Absolute undervoltage monitoring (Абсолютное значение напряжения слишком мало)",
-            38: "Absolute overvoltage monitoring (Абсолютное значение напряжения слишком велико)",
-            39: "Absolute undercurrent monitoring (Абсолютное значение тока слишком мало)",
-            40: "Ground current has released (Ток заземления снят)",
-            41: "Overcurrent anode has released (Перегрузка анода по току снята)",
-            43: "Extern STOP (Внешний останов)",
-            44: "Focus change-over switch defect (Переключатель фокуса неисправен)",
-            46: "EMERGENCY-STOP (Аварийный останов)",
-            47: "Preselection exceeding rated power (Предустановленное значение превышает номинальную мощность)",
-            48: "Overcurrent cathode has released (Перегрузка катода по току снята)",
-            50: "Tube overpower (Перегрузка трубки)",
-            51: "Preselection out of range (Предустановленное значение за пределами диапазона)",
-            52: "Presel. exceeding rated gener. current (Предустановленное значение превышает номинальный ток генератора)",
-            53: "High voltage lamp defective (Лампа высокого напряжения неисправна)",
-            55: "Relative overcurrent monitoring (Относительное значение тока слишком велико)",
-            56: "Relative undervoltage monitoring (Относительное значение напряжения слишком мало)",
-            57: "Wrong tube type (Неверный тип трубки)",
-            58: "Not programmed (Нет программы)",
-            60: "Relative undercurrent monitoring (Относительное значение тока слишком мало)",
-            61: "Chopper overcurrent (Ток прерывателя слишком велик)",
-            62: "Overtemperature anode (Температура анода слишком велика)",
-            63: "Door contact 1 and 2 open (Дверные контакты 1 и 2 разомкнуты)",
-            64: "Door contact 1 open (Дверной контакт 1 разомкнут)",
-            65: "Door contact 2 open (Дверной контакт 2 разомкнут)",
-            66: "Exposuretime = 0 (Нулевое время экспозиции)",
-            72: "Preselection out of range, too low (Предустановленное значение за пределами диапазона, слишком мало)",
-            74: "High voltage locked (Высокое напряжение заблокировано)",
-            76: "Stand-By	(режим ожидания)",
-            77: "Preselection too large (Предустановленное значение слишком велико)",
-            78: "Overwrite program? (Перезаписать программу?)",
-            80: "Temperature supervision power module (Температурный контроль: силовой модуль)",
-            82: "HV prim. overcurrent (Ток первичной обмотки высокого напряжения слишком велик)",
-            86: "HV contactor faulty (Высоковольтный прерыватель неисправен)",
-            87: "Flash lamp faulty (Вспыхивающая лампа неисправна)",
-            88: "Chopper temperature (Температура прерывателя)",
-            89: "Filament primary overcurrent (Ток первичной обмотки накала слишком велик)",
-            90: "Filament primary undercurrent (Ток первичной обмотки накала слишком мал)",
-            91: "Buffer battery empty (Буферная батарея разряжена)",
-            92: "Powerstage, filament failed (Силовой каскад: неисправность в цепи накала)",
-            93: "Powerstage, filament undercurrent (Силовой каскад: ток накала слишком велик)",
-            94: "Powerstage, high voltage failed (Силовой каскад: неисправность в цепи высокого напряжения)",
-            95: "Chopper failed (неисправность прерывателя)",
-            104: "External warning lamp failed (Неисправность внешней сигнальной лампы)",
-            105: "Temperature supervision generator (Температурный контроль: генератор)",
-            106: "Warm-up necessary (Необходим прогрев)",
-            107: "Keypad error (Ошибка клавиатуры)",
-            108: "Power failure (low voltage) (Сбой питания или низкое напряжение)",
-            109: "Warm-up! 0=No (Прогрев! 0 = Нет)",
-            111: "Chopper output voltage failed (Неисправность в цепи выходного напряжения прерывателя)",
-            112: "Absolute overcurrent monitoring (Абсолютное значение тока слишком велико)",
-            114: "Relative overvoltage monitoring (Относительное значение напряжение слишком велико)",
-            115: "Maximum test voltage exceeded (Превышено максимальное значение тестового напряжения)",
-            116: "Warm-up terminated after 3 attempts (Прогрев прекращен поле 3 попыток)",
-            117: "Warm-up aborted. Try again (Прогрев прерван. Повторите попытку)",
-            118: "Push START button (Нажмите кнопку START)",
-            119: "Warm-up program completed. ENTER (Программа прогрева завершена. Нажмите ENTER)",
-            121: "Observe warm-up instructions! ENTER (Необходимо соблюдать инструкции по прогреву! Нажмите ENTER)",
-            123: "Bypass charging resistor faulty (Цепь шунтирования зарядного резистора неисправна)"
+            33: "Cooling system failed",
+            35: "Interlock open",
+            37: "Absolute undervoltage monitoring",
+            38: "Absolute overvoltage monitoring",
+            39: "Absolute undercurrent monitoring",
+            40: "Ground current has released",
+            41: "Overcurrent anode has released",
+            43: "Extern STOP",
+            44: "Focus change-over switch defect",
+            46: "EMERGENCY-STOP",
+            47: "Preselection exceeding rated power",
+            48: "Overcurrent cathode has released",
+            50: "Tube overpower",
+            51: "Preselection out of range",
+            52: "Presel. exceeding rated generator current",
+            53: "High voltage lamp defective",
+            55: "Relative overcurrent monitoring",
+            56: "Relative undervoltage monitoring",
+            57: "Wrong tube type",
+            58: "Not programmed",
+            60: "Relative undercurrent monitoring",
+            61: "Chopper overcurrent",
+            62: "Overtemperature anode",
+            63: "Door contact 1 and 2 open",
+            64: "Door contact 1 open",
+            65: "Door contact 2 open",
+            66: "Exposuretime = 0",
+            72: "Preselection out of range, too low",
+            74: "High voltage locked",
+            76: "Stand-By",
+            77: "Preselection too large",
+            78: "Overwrite program?",
+            80: "Temperature supervision power module",
+            82: "HV prim. overcurrent",
+            86: "HV contactor faulty",
+            87: "Flash lamp faulty",
+            88: "Chopper temperature",
+            89: "Filament primary overcurrent",
+            90: "Filament primary undercurrent",
+            91: "Buffer battery empty",
+            92: "Powerstage, filament failed",
+            93: "Powerstage, filament undercurrent",
+            94: "Powerstage, high voltage failed",
+            95: "Chopper failed",
+            104: "External warning lamp failed",
+            105: "Temperature supervision generator",
+            106: "Warm-up necessary",
+            107: "Keypad error",
+            108: "Power failure (low voltage)",
+            109: "Warm-up! 0=No",
+            111: "Chopper output voltage failed",
+            112: "Absolute overcurrent monitoring",
+            114: "Relative overvoltage monitoring",
+            115: "Maximum test voltage exceeded",
+            116: "Warm-up terminated after 3 attempts",
+            117: "Warm-up aborted. Try again",
+            118: "Push START button",
+            119: "Warm-up program completed. ENTER",
+            121: "Observe warm-up instructions! ENTER",
+            123: "Bypass charging resistor faulty",
         }
 
         self.serial_port.write("SR:12\n".encode())
         answer = self.get_data_string()
         try:
-            error_code = int(answer[1:-1])
-        except ValueError:  # TODO: Fix this
-            error_code = 0
+            error_code = int(answer[1:])
+        except ValueError:
+            logging.warning("Source.get_error(): cannot parse answer: %r", answer)
+            return None
 
         if error_code != 0:
-            res = {'code': error_code, 'message': status_strings[int(error_code)]}
-        else:
-            res = None
+            message = status_strings.get(error_code, "Unknown error code {}".format(error_code))
+            return {'code': error_code, 'message': message}
+        return None
 
-        return res
+    def reset_error(self, code):
+        """Сбросить ошибку (команда RE:nn).
 
-    # auxiliary functions
+        Args:
+            code (int): Код ошибки для сброса.
+
+        Raises:
+            RuntimeError: Если после сброса ошибка не исчезла.
+        """
+        if self.mock:
+            return
+        logging.debug('Source.reset_error(%d) starting...', code)
+        self.serial_port.write("RE:{}\n".format(str(code).zfill(2)).encode())
+        sleep(0.2)
+        error = self.get_error()
+        if error is not None and error['code'] == code:
+            logging.error("Source.reset_error(): error %d persists after reset", code)
+            raise RuntimeError("Source.reset_error(): error {} persists after reset".format(code))
+        logging.debug('Source.reset_error(%d) finished.', code)
+
+    # ------------------------------------------------------------------
+    # Вспомогательные методы
+    # ------------------------------------------------------------------
 
     def get_data_string(self):
-        sleep(0.2)  # TODO: remove it?
-        line = self.serial_port.read_until('\r'.encode())
-        # cur_byte = self.serial_port.read()
-        # line = cur_byte
-        # while cur_byte != '\r'.encode():
-        #     cur_byte = self.serial_port.read()
-        #     line = line + cur_byte
-        return line.decode()
+        """Прочитать одну строку ответа из serial-порта.
+
+        Протокол: ответ начинается с '*', заканчивается '\\r'.
+
+        Returns:
+            str: Строка ответа без завершающих символов.
+        """
+        sleep(0.2)
+        line = self.serial_port.read_until(b'\r')
+        return line.decode().strip()
 
     @staticmethod
-    def get_number(line):  # TODO: check it
-        return int(line[1:])  # remove first "*"
+    def get_number(line):
+        """Преобразовать строку ответа вида '*nnnnn' в целое число.
+
+        Args:
+            line (str): Строка ответа, начинающаяся с '*'.
+
+        Returns:
+            int: Числовое значение.
+        """
+        return int(line[1:])
+
+    # ------------------------------------------------------------------
+    # Интерфейс get_state / set_state
+    # ------------------------------------------------------------------
 
     def get_state(self, options=None):
-        if options is None:
-            options = ['is_on_high_voltage', 'id', 'tube_name',
-                       'actual_voltage', 'nominal_voltage',
-                       'actual_current', 'nominal_current', 'status', 'last_error']
-        res = {}
-        if not isinstance(options, (list, tuple)):
-            options = [options, ]
+        """Прочитать состояние устройства по списку параметров.
 
+        Args:
+            options (list | str | None): Список запрашиваемых параметров.
+                По умолчанию читаются все доступные параметры.
+                Допустимые значения: ``'is_on_high_voltage'``, ``'id'``,
+                ``'tube_name'``, ``'actual_voltage'``, ``'nominal_voltage'``,
+                ``'actual_current'``, ``'nominal_current'``,
+                ``'actual_power'``, ``'nominal_power'``,
+                ``'status'``, ``'last_error'``.
+
+        Returns:
+            dict: Словарь ``{параметр: значение}``.
+        """
+        if options is None:
+            options = [
+                'is_on_high_voltage', 'id', 'tube_name',
+                'actual_voltage', 'nominal_voltage',
+                'actual_current', 'nominal_current',
+                'actual_power', 'nominal_power',
+                'status', 'last_error',
+            ]
+        if not isinstance(options, (list, tuple)):
+            options = [options]
+
+        handlers = {
+            'is_on_high_voltage': self.is_on_high_voltage,
+            'id':                 self.get_id,
+            'tube_name':          self.get_tube_name,
+            'actual_voltage':     self.get_actual_voltage,
+            'nominal_voltage':    self.get_nominal_voltage,
+            'actual_current':     self.get_actual_current,
+            'nominal_current':    self.get_nominal_current,
+            'actual_power':       self.get_actual_power,
+            'nominal_power':      self.get_nominal_power,
+            'status':             self.get_status,
+            'last_error':         self.get_error,
+        }
+
+        res = {}
         for option in options:
-            if option == 'is_on_high_voltage':
-                s = self.is_on_high_volatge()
-            elif option == 'id':
-                s = self.get_id()
-            elif option == 'tube_name':
-                s = self.get_tube_name()
-            elif option == 'actual_voltage':
-                s = self.get_actual_voltage()
-            elif option == 'nominal_voltage':
-                s = self.get_nominal_voltage()
-            elif option == 'actual_current':
-                s = self.get_actual_current()
-            elif option == 'nominal_current':
-                s = self.get_nominal_current()
-            elif option == 'status':
-                s = self.get_status()
-            elif option == 'last_error':
-                s = self.get_error()
+            if option in handlers:
+                res[option] = handlers[option]()
             else:
-                s = {'error': 'Unsupported option'}
-            res[option] = s
+                res[option] = {'error': 'Unsupported option: {}'.format(option)}
         return res
 
     def set_state(self, options_dict):
+        """Установить параметры устройства.
+
+        Args:
+            options_dict (dict): Словарь ``{параметр: значение}``.
+                Поддерживаемые ключи: ``'set_voltage'`` (кВ),
+                ``'set_current'`` (мА), ``'set_power'`` (Вт),
+                ``'high_voltage'`` (bool).
+
+        Returns:
+            dict: Словарь с запрошенными и результирующими значениями.
+        """
         res = {}
-        for option in options_dict:
-            if option == 'set_voltage':
-                s = self.set_voltage(options_dict['set_voltage'])
-            elif option == 'set_current':
-                s = self.set_current(options_dict['set_current'])
+        handlers = {
+            'set_voltage': lambda v: self.set_voltage(v),
+            'set_current': lambda v: self.set_current(v),
+            'set_power':   lambda v: self.set_power(v),
+        }
+
+        for option, value in options_dict.items():
+            if option in handlers:
+                res[option] = handlers[option](value)
             elif option == 'high_voltage':
-                if options_dict['high_voltage'] is True:
-                    s = self.on_high_voltage()
-                elif options_dict['high_voltage'] is False:
-                    s = self.off_high_voltage()
+                if value is True:
+                    res[option] = self.on_high_voltage()
+                elif value is False:
+                    res[option] = self.off_high_voltage()
                 else:
-                    s = {
-                        'error': 'Unsupported parameter. Should be True or False, but {} given'.format(
-                            options_dict['high_voltage'])}
+                    res[option] = {
+                        'error': 'high_voltage must be True or False, got: {}'.format(value)
+                    }
             else:
-                s = {'error': 'Unsupported option'}
+                res[option] = {'error': 'Unsupported option: {}'.format(option)}
 
-            res[option] = s
-
-        return {'requested_state': options_dict,
-                'result': res}
+        return {'requested_state': options_dict, 'result': res}
