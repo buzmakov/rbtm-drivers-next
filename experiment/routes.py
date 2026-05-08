@@ -15,7 +15,7 @@ tomo_logger = tomologger.tomologger
 bp_main = Blueprint('main', __name__, url_prefix='/')
 bp_tomograph = Blueprint('tomograph', __name__, url_prefix='/tomograph/<int:tomo_num>')
 
-tomograph = Tomograph(mock=True)
+tomograph = Tomograph()
 
 @bp_tomograph.before_request
 @bp_main.before_request

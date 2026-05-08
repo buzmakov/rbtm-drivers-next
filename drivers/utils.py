@@ -18,8 +18,14 @@ def get_shutter_config():
 
 
 def get_source_config():
+    """Прочитать конфигурацию рентгеновского источника из devices.cfg.
+
+    Returns:
+        dict: ``{'port': str, 'mock': bool}``
+    """
     port = get_info_from_config("x-ray source", "port")
-    return {'port': port}
+    mock = get_info_from_config("x-ray source", "mock").strip().lower() == 'true'
+    return {'port': port, 'mock': mock}
 
 
 def get_angle_motor_config():

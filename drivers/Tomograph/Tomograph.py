@@ -18,8 +18,15 @@ from .. import tomo_logger
 
 @traced(tomo_logger.logger)
 class HWTomograph(object):
-    def __init__(self, mock=True):
+    def __init__(self, mock=None):
+        """Инициализировать все устройства томографа.
 
+        Args:
+            mock: Если передано явно (True/False) — переопределяет значение
+                из конфигурационного файла. Если None (по умолчанию) — режим
+                mock читается из ``drivers/config/devices.cfg``,
+                секция ``[x-ray source]``, ключ ``mock``.
+        """
         shutter_config = get_shutter_config()
         self.shutter = XRayShutter.HWShutter(
             shutter_config["port"],
@@ -27,9 +34,10 @@ class HWTomograph(object):
         )
 
         source_config = get_source_config()
+        source_mock = source_config["mock"] if mock is None else mock
         self.source = XRaySource.HWSource(
             source_config["port"],
-            mock=mock
+            mock=source_mock
         )
 
         horizontal_motor_config = get_horizontal_motor_config()

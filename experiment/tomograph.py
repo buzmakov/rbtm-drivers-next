@@ -15,14 +15,15 @@ class HWTomograph:
 
 @traced(tomo_logger.logger)
 class Tomograph:
-    def __init__(self, mock=True, redis_host='redis', redis_port=6379, redis_db=0):
-        # Используем RedisProxy для инициализации HWTomograph
+    def __init__(self, redis_host='redis', redis_port=6379, redis_db=0):
+        # Используем RedisProxy для инициализации HWTomograph.
+        # Режим mock источника определяется из drivers/config/devices.cfg.
         HWTomographProxy = RedisProxy.create(HWTomograph,
                                      redis_host=redis_host,
                                      redis_port=redis_port,
                                      redis_db=redis_db,
                                      )
-        self.hwtomo = HWTomographProxy(mock=mock)
+        self.hwtomo = HWTomographProxy()
         self.current_experiment = None
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
