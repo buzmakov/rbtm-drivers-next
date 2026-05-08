@@ -55,6 +55,20 @@ def source_power_off(tomo_num):
     return call_method_create_response(tomo_num, method_name='source_power_off')
 
 
+@bp_tomograph.route('/source/state', methods=['GET'])
+def source_state(tomo_num):
+    """Возвращает текущее состояние рентгеновского источника.
+
+    Response JSON:
+        {"success": true, "result": {"on": bool, "busy": bool}}
+    """
+    try:
+        state = tomograph.source_get_state()
+        return create_response(success=True, result=state)
+    except ModExpError as e:
+        return e.create_response()
+
+
 @bp_tomograph.route('/source/set-voltage', methods=['POST'])
 def source_set_voltage(tomo_num):
     success, new_voltage, response_if_fail = check_request(request.data)
