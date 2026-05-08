@@ -11,7 +11,7 @@ Benchmark: Legacy get_frames() vs Persistent-Trigger get_frames().
 * Persistent trigger mode — start_acquisition() один раз, затем N × (set_trigger_software + get_image).
 
 Тест параметризован по временам экспозиции: 0.1, 1, 10 с.
-Результаты логируются через logging.info() и выводятся в консоль при -s.
+Результаты выводятся в виде таблицы через logging.info().
 """
 import logging
 import time
@@ -33,53 +33,33 @@ BENCH_PARAMS = [
 
 @pytest.fixture
 def detector():
-    """Open HWDetector once per test and guarantee close() on teardown."""
+    """Open HWDetector once per test and guarantee close() on teardown.
+    XI_DL_FATAL suppresses xiAPI verbose stdout during benchmark runs.
+    """
     d = HWDetector()
+    # Suppress xiAPI stdout noise (AllocateBuffers, bandwidth, scheduler warnings).
+    # XI_DL_FATAL keeps only fatal errors visible.
+    d.cam.set_debug_level("XI_DL_FATAL")
     yield d
     d.close()
 
 
-def _capture_legacy(detector: HWDetector, exposure_s: float, n: int) -> list[float]:
-    """Capture n frames in legacy mode (start/stop per call). Returns per-frame times."""
+def _measure(fn, n: int) -> "dict[str, float]":
+    """Run fn() n times, return timing stats in seconds."""
     times = []
     for _ in range(n):
         t0 = time.perf_counter()
-        detector.get_frames(exposure=exposure_s, number_frames=1)
+        fn()
         times.append(time.perf_counter() - t0)
-    return times
-
-
-def _capture_persistent(detector: HWDetector, exposure_s: float, n: int,
-                         use_trigger: bool) -> list[float]:
-    """Capture n frames in persistent mode. Returns per-frame times."""
-    detector.start_acquisition(exposure=exposure_s, use_trigger=use_trigger)
-    try:
-        times = []
-        for _ in range(n):
-            t0 = time.perf_counter()
-            detector.get_frames(exposure=exposure_s, number_frames=1)
-            times.append(time.perf_counter() - t0)
-        return times
-    finally:
-        detector.stop_acquisition()
-
-
-def _report(label: str, times: list[float]) -> dict:
     arr = np.array(times)
-    result = {
-        'mean_s':  float(arr.mean()),
-        'min_s':   float(arr.min()),
-        'max_s':   float(arr.max()),
-        'std_s':   float(arr.std()),
-        'total_s': float(arr.sum()),
+    return {
+        'mean':  float(arr.mean()),
+        'min':   float(arr.min()),
+        'max':   float(arr.max()),
+        'std':   float(arr.std()),
+        'total': float(arr.sum()),
+        'n':     n,
     }
-    logging.info(
-        "[%s] n=%d  mean=%.3f s  min=%.3f s  max=%.3f s  std=%.4f s  total=%.3f s",
-        label, len(times),
-        result['mean_s'], result['min_s'], result['max_s'],
-        result['std_s'],  result['total_s'],
-    )
-    return result
 
 
 @pytest.mark.parametrize("exposure_s, n_frames", BENCH_PARAMS)
@@ -90,11 +70,9 @@ def test_detector_perf_comparison(detector, exposure_s: float, n_frames: int):
 
     Checks:
     - Both modes return valid numpy uint16 frames (correctness gate).
-    - Persistent trigger mode mean time is not worse than legacy + 10 %
-      (loose bound — real hardware should be significantly faster).
-    - Overhead (mean - exposure) is logged for manual inspection.
+    - Persistent trigger mode mean time is not worse than legacy + 10 %.
     """
-    # ── correctness sanity check ──────────────────────────────────────
+    # ── correctness check ─────────────────────────────────────────────
     sample_legacy = detector.get_frames(exposure=exposure_s, number_frames=1)
     assert isinstance(sample_legacy, np.ndarray) and sample_legacy.dtype == np.uint16, \
         "Legacy frame must be uint16 ndarray"
@@ -105,33 +83,57 @@ def test_detector_perf_comparison(detector, exposure_s: float, n_frames: int):
     assert isinstance(sample_trigger, np.ndarray) and sample_trigger.dtype == np.uint16, \
         "Trigger-mode frame must be uint16 ndarray"
 
-    # ── warm up (discard first frame to avoid cold-start bias) ─────────
+    # ── warm-up (discard cold-start frame) ───────────────────────────
     detector.get_frames(exposure=exposure_s, number_frames=1)
 
-    # ── legacy benchmark ───────────────────────────────────────────────
-    logging.info("=== LEGACY MODE  exposure=%.1f s, n=%d ===", exposure_s, n_frames)
-    legacy_times = _capture_legacy(detector, exposure_s, n_frames)
-    legacy = _report("legacy", legacy_times)
-
-    # ── persistent + software trigger benchmark ────────────────────────
-    logging.info("=== PERSISTENT TRIGGER MODE  exposure=%.1f s, n=%d ===", exposure_s, n_frames)
-    trig_times = _capture_persistent(detector, exposure_s, n_frames, use_trigger=True)
-    trig = _report("persistent_trigger", trig_times)
-
-    # ── summary ───────────────────────────────────────────────────────
-    overhead_legacy_ms  = (legacy['mean_s'] - exposure_s) * 1e3
-    overhead_trigger_ms = (trig['mean_s']   - exposure_s) * 1e3
-    speedup = legacy['total_s'] / trig['total_s'] if trig['total_s'] > 0 else 0.0
-
-    logging.info(
-        "exposure=%.1f s | overhead legacy=%.1f ms | trigger=%.1f ms "
-        "| speedup=%.2fx over %d frames",
-        exposure_s, overhead_legacy_ms, overhead_trigger_ms, speedup, n_frames,
+    # ── legacy benchmark ──────────────────────────────────────────────
+    legacy = _measure(
+        lambda: detector.get_frames(exposure=exposure_s, number_frames=1),
+        n_frames,
     )
 
-    # ── assertion: persistent must not be substantially slower ─────────
-    assert trig['mean_s'] <= legacy['mean_s'] * 1.10, (
-        f"exposure={exposure_s}s: Persistent trigger mode ({trig['mean_s']:.3f} s) "
-        f"is more than 10 % slower than legacy ({legacy['mean_s']:.3f} s) "
-        f"— unexpected regression"
+    # ── persistent trigger benchmark ──────────────────────────────────
+    detector.start_acquisition(exposure=exposure_s, use_trigger=True)
+    try:
+        trig = _measure(
+            lambda: detector.get_frames(exposure=exposure_s, number_frames=1),
+            n_frames,
+        )
+    finally:
+        detector.stop_acquisition()
+
+    # ── results table ─────────────────────────────────────────────────
+    overhead_legacy_ms  = (legacy['mean'] - exposure_s) * 1e3
+    overhead_trigger_ms = (trig['mean']   - exposure_s) * 1e3
+    speedup = legacy['total'] / trig['total'] if trig['total'] > 0 else 0.0
+    saved_ms = (legacy['total'] - trig['total']) * 1e3
+
+    sep = "─" * 62
+    logging.info(
+        "\n"
+        "  Detector benchmark  exposure=%.2f s  n=%d frames\n"
+        "%s\n"
+        "  %-24s %8s %8s %8s %8s\n"
+        "%s\n"
+        "  %-24s %7.3f s %7.3f s %7.3f s %7.1f ms\n"
+        "  %-24s %7.3f s %7.3f s %7.3f s %7.1f ms\n"
+        "%s\n"
+        "  Speedup: %.2fx   Saved: %.0f ms total   "
+        "(overhead: legacy=%.0f ms  trigger=%.0f ms per frame)\n"
+        "%s",
+        exposure_s, n_frames,
+        sep,
+        "Mode", "mean", "min", "max", "overhead",
+        sep,
+        "legacy",            legacy['mean'], legacy['min'], legacy['max'], overhead_legacy_ms,
+        "persistent+trigger", trig['mean'],  trig['min'],  trig['max'],   overhead_trigger_ms,
+        sep,
+        speedup, saved_ms, overhead_legacy_ms, overhead_trigger_ms,
+        sep,
+    )
+
+    # ── assertion ─────────────────────────────────────────────────────
+    assert trig['mean'] <= legacy['mean'] * 1.10, (
+        f"exposure={exposure_s}s: persistent trigger ({trig['mean']:.3f} s) "
+        f"is >10% slower than legacy ({legacy['mean']:.3f} s)"
     )
