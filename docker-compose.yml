@@ -48,6 +48,7 @@ services:
       - ${XIMEA_CAMERA_DEVICE}
       - "/dev/ximc/0000037A:/dev/ximc/0000037A"
       - "/dev/ximc/00000271:/dev/ximc/00000271"
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
     environment:
       - LD_LIBRARY_PATH=/xtomo/vendor/ximea/libs/libusb/X64:/xtomo/vendor/ximea/libs/libraw1394/X64:/xtomo/vendor/ximea/api/X64
     command: python tomograph_server.py
