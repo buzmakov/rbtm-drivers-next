@@ -4,8 +4,9 @@ from time import sleep, time
 import atexit
 
 TIMEOUT = 10
-CACHE_TTL = 3       # секунды: кэшировать значение не дольше
-                    # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
+CACHE_TTL = 3           # секунды: кэшировать значение не дольше
+                        # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
+WARMUP_TIMEOUT = 1800   # максимальное время прогрева — 30 минут
 
 
 class HWSource(object):
@@ -17,26 +18,67 @@ class HWSource(object):
     """
 
     STATUS_STRINGS = {
+        # ── Низкие коды: состояние/неготовность генератора ───────────────
+        1:  "HV on",
+        2:  "Ready",
+        3:  "Standby",
+        4:  "Warm-up running",
+        5:  "Fault",
+        6:  "Generator not initialised / not ready",
+        7:  "Filament current out of tolerance",
+        8:  "Coolant flow insufficient",
+        9:  "Anode overtemperature",
+        10: "Coolant temperature too high",
+        11: "Overtemperature generator",
+        12: "Filament error",
+        13: "Preselected values out of range",
+        14: "Filament open circuit",
+        15: "Filament short circuit",
+        16: "Focus changeover switch error",
+        17: "High voltage too high",
+        18: "High voltage too low",
+        19: "Tube current too high",
+        20: "Tube current too low",
+        21: "Anode power too high",
+        22: "Anode power too low",
+        23: "Ground current error",
+        24: "HV contactor error",
+        25: "HV lamp error",
+        26: "Chopper error",
+        27: "Chopper temperature error",
+        28: "Bypass charging resistor error",
+        29: "Flash lamp error",
+        30: "External warning lamp error",
+        31: "Buffer battery low",
+        32: "Keypad error",
+        # ── Стандартные коды аварий ───────────────────────────────────────
         33: "Cooling system failed",
+        34: "HV interlock error",
         35: "Interlock open",
+        36: "Wrong tube type configured",
         37: "Absolute undervoltage monitoring",
         38: "Absolute overvoltage monitoring",
         39: "Absolute undercurrent monitoring",
         40: "Ground current has released",
         41: "Overcurrent anode has released",
+        42: "Overcurrent cathode",
         43: "Extern STOP",
         44: "Focus change-over switch defect",
+        45: "HV primary voltage error",
         46: "EMERGENCY-STOP",
         47: "Preselection exceeding rated power",
         48: "Overcurrent cathode has released",
+        49: "Filament power too high",
         50: "Tube overpower",
         51: "Preselection out of range",
         52: "Presel. exceeding rated generator current",
         53: "High voltage lamp defective",
+        54: "Filament primary power error",
         55: "Relative overcurrent monitoring",
         56: "Relative undervoltage monitoring",
         57: "Wrong tube type",
         58: "Not programmed",
+        59: "Power stage error",
         60: "Relative undercurrent monitoring",
         61: "Chopper overcurrent",
         62: "Overtemperature anode",
@@ -44,13 +86,25 @@ class HWSource(object):
         64: "Door contact 1 open",
         65: "Door contact 2 open",
         66: "Exposuretime = 0",
+        67: "Filament primary overcurrent",
+        68: "HV primary overcurrent",
+        69: "Filament undercurrent",
+        70: "HV bridge fault",
+        71: "HV primary fault",
         72: "Preselection out of range, too low",
+        73: "Preselection too high",
         74: "High voltage locked",
+        75: "Interlock chain fault",
         76: "Stand-By",
         77: "Preselection too large",
         78: "Overwrite program?",
+        79: "Parameter storage error",
         80: "Temperature supervision power module",
+        81: "Power module fault",
         82: "HV prim. overcurrent",
+        83: "Filament stage fault",
+        84: "HV stage fault",
+        85: "Control board fault",
         86: "HV contactor faulty",
         87: "Flash lamp faulty",
         88: "Chopper temperature",
@@ -61,22 +115,38 @@ class HWSource(object):
         93: "Powerstage, filament undercurrent",
         94: "Powerstage, high voltage failed",
         95: "Chopper failed",
+        96: "HV bridge overcurrent",
+        97: "Filament bridge overcurrent",
+        98: "Output overvoltage",
+        99: "Output undervoltage",
+        100: "Driver fault",
+        101: "Gate drive fault",
+        102: "Bus voltage fault",
+        103: "Control power fault",
         104: "External warning lamp failed",
         105: "Temperature supervision generator",
         106: "Warm-up necessary",
         107: "Keypad error",
         108: "Power failure (low voltage)",
         109: "Warm-up! 0=No",
+        110: "Warm-up program not available",
         111: "Chopper output voltage failed",
         112: "Absolute overcurrent monitoring",
+        113: "Relative overvoltage monitoring (secondary)",
         114: "Relative overvoltage monitoring",
         115: "Maximum test voltage exceeded",
         116: "Warm-up terminated after 3 attempts",
         117: "Warm-up aborted. Try again",
         118: "Push START button",
         119: "Warm-up program completed. ENTER",
+        120: "Warm-up program running",
         121: "Observe warm-up instructions! ENTER",
+        122: "Warm-up step in progress",
         123: "Bypass charging resistor faulty",
+        124: "HV module communication error",
+        125: "Filament module communication error",
+        126: "Control module fault",
+        127: "EEPROM write error",
     }
 
     def __init__(self, tty_name, mock: bool = False):
@@ -241,10 +311,10 @@ class HWSource(object):
         """Запустить программу прогрева трубки (WU).
 
         Читает установленное напряжение, отправляет команду прогрева,
-        включает HV и ждёт завершения.
+        включает HV и ждёт завершения (не более WARMUP_TIMEOUT секунд).
 
         Raises:
-            RuntimeError: При ошибке включения HV после прогрева.
+            RuntimeError: При ошибке включения HV или превышении таймаута.
         """
         if self.mock:
             return
@@ -263,10 +333,24 @@ class HWSource(object):
             logging.error("Source.warmup() HV error: {}".format(error))
             raise RuntimeError("Source.warmup() HV error: {}".format(error))
 
+        warmup_start = time()
         while True:
+            elapsed = time() - warmup_start
+            if elapsed > WARMUP_TIMEOUT:
+                logging.error(
+                    "Source.warmup(): timeout after %.0f seconds (limit %d s)",
+                    elapsed, WARMUP_TIMEOUT)
+                raise RuntimeError(
+                    "Source.warmup(): timeout after {:.0f}s (limit {}s)".format(
+                        elapsed, WARMUP_TIMEOUT))
+
             status = self.get_status()
             ws = status['warming status']
             ps = status['power status']
+            logging.info(
+                "Source.warmup(): elapsed=%.0fs in_progress=%s from_pc=%s from_kb=%s hv_norm=%s",
+                elapsed, ws['in progress'], ws['warming from pc'],
+                ws['warming from kb'], ps['voltage kv norm'])
             if not (ws['in progress'] or ws['warming from kb'] or
                     ws['warming from pc'] or ps['voltage kv norm']):
                 break
@@ -408,11 +492,12 @@ class HWSource(object):
     def get_actual_voltage(self):
         """Прочитать фактическое напряжение (кВ).
 
-        Returns:
-            float: Напряжение в кВ.
+        При ошибке от устройства возвращает последнее кешированное значение
+        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
+        Это позволяет UI продолжать работу когда источник выключен или не готов.
 
-        Raises:
-            RuntimeError: При ошибке от устройства.
+        Returns:
+            float: Напряжение в кВ (0.0 если устройство не отвечает корректно).
         """
         if self.mock:
             return 40.0
@@ -421,17 +506,23 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_actual_voltage() starting...')
-        self.serial_port.write("VA\n".encode())
-        answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_actual_voltage() error: {}".format(error))
-            raise RuntimeError("Source.get_actual_voltage() error: {}".format(error))
+        try:
+            self.serial_port.write("VA\n".encode())
+            answer = self.get_data_string()
+            error = self.get_error()
+            if error is not None:
+                logging.warning(
+                    "Source.get_actual_voltage() device error: %s (returning last cached or 0.0)",
+                    error)
+                return self.last_voltage_actual if self.last_voltage_actual is not None else 0.0
 
-        self.last_voltage_actual = self.get_number(answer) / 1000.0
-        self.timer_voltage_actual = time()
-        logging.debug('Source.get_actual_voltage() finished.')
-        return self.last_voltage_actual
+            self.last_voltage_actual = self.get_number(answer) / 1000.0
+            self.timer_voltage_actual = time()
+            logging.debug('Source.get_actual_voltage() finished.')
+            return self.last_voltage_actual
+        except Exception as e:
+            logging.warning("Source.get_actual_voltage() exception: %s (returning 0.0)", e)
+            return self.last_voltage_actual if self.last_voltage_actual is not None else 0.0
 
     def get_nominal_current(self):
         """Прочитать установленный ток (мА).
@@ -464,11 +555,11 @@ class HWSource(object):
     def get_actual_current(self):
         """Прочитать фактический ток (мА).
 
-        Returns:
-            float: Ток в мА.
+        При ошибке от устройства возвращает последнее кешированное значение
+        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
 
-        Raises:
-            RuntimeError: При ошибке от устройства.
+        Returns:
+            float: Ток в мА (0.0 если устройство не отвечает корректно).
         """
         if self.mock:
             return 20.0
@@ -477,17 +568,23 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_actual_current() starting...')
-        self.serial_port.write("CA\n".encode())
-        answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_actual_current() error: {}".format(error))
-            raise RuntimeError("Source.get_actual_current() error: {}".format(error))
+        try:
+            self.serial_port.write("CA\n".encode())
+            answer = self.get_data_string()
+            error = self.get_error()
+            if error is not None:
+                logging.warning(
+                    "Source.get_actual_current() device error: %s (returning last cached or 0.0)",
+                    error)
+                return self.last_current_actual if self.last_current_actual is not None else 0.0
 
-        self.last_current_actual = self.get_number(answer) / 1000.0
-        self.timer_current_actual = time()
-        logging.debug('Source.get_actual_current() finished.')
-        return self.last_current_actual
+            self.last_current_actual = self.get_number(answer) / 1000.0
+            self.timer_current_actual = time()
+            logging.debug('Source.get_actual_current() finished.')
+            return self.last_current_actual
+        except Exception as e:
+            logging.warning("Source.get_actual_current() exception: %s (returning 0.0)", e)
+            return self.last_current_actual if self.last_current_actual is not None else 0.0
 
     def get_nominal_power(self):
         """Прочитать установленную мощность (Вт).
@@ -520,11 +617,11 @@ class HWSource(object):
     def get_actual_power(self):
         """Прочитать фактическую мощность (Вт).
 
-        Returns:
-            float: Мощность в Вт.
+        При ошибке от устройства возвращает последнее кешированное значение
+        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
 
-        Raises:
-            RuntimeError: При ошибке от устройства.
+        Returns:
+            float: Мощность в Вт (0.0 если устройство не отвечает корректно).
         """
         if self.mock:
             return 800.0
@@ -533,17 +630,23 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_actual_power() starting...')
-        self.serial_port.write("PA\n".encode())
-        answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_actual_power() error: {}".format(error))
-            raise RuntimeError("Source.get_actual_power() error: {}".format(error))
+        try:
+            self.serial_port.write("PA\n".encode())
+            answer = self.get_data_string()
+            error = self.get_error()
+            if error is not None:
+                logging.warning(
+                    "Source.get_actual_power() device error: %s (returning last cached or 0.0)",
+                    error)
+                return self.last_power_actual if self.last_power_actual is not None else 0.0
 
-        self.last_power_actual = self.get_number(answer) / 1000.0
-        self.timer_power_actual = time()
-        logging.debug('Source.get_actual_power() finished.')
-        return self.last_power_actual
+            self.last_power_actual = self.get_number(answer) / 1000.0
+            self.timer_power_actual = time()
+            logging.debug('Source.get_actual_power() finished.')
+            return self.last_power_actual
+        except Exception as e:
+            logging.warning("Source.get_actual_power() exception: %s (returning 0.0)", e)
+            return self.last_power_actual if self.last_power_actual is not None else 0.0
 
     # ------------------------------------------------------------------
     # Установка параметров

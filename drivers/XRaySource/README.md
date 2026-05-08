@@ -173,19 +173,47 @@ source.off_high_voltage()
 
 ## Коды ошибок
 
-Наиболее важные коды из словаря `HWSource.STATUS_STRINGS`:
+Коды возвращаются регистром ошибок `SR:12`. Полный список — в словаре `HWSource.STATUS_STRINGS` ([`XRaySource.py`](XRaySource.py)).
 
-| Код | Сообщение |
-|---|---|
-| 35 | Interlock open |
-| 63 | Door contact 1 and 2 open |
-| 64 | Door contact 1 open |
-| 65 | Door contact 2 open |
-| 46 | EMERGENCY-STOP |
-| 106 | Warm-up necessary |
-| 76 | Stand-By |
+Наиболее важные:
 
-Полный список кодов — в [`XRaySource.py:19`](XRaySource.py:19).
+| Код | Сообщение | Действие |
+|---|---|---|
+| 6 | Generator not initialised / not ready | Подождать инициализации генератора |
+| 35 | Interlock open | Проверить interlock-цепь |
+| 46 | EMERGENCY-STOP | Снять аварийный стоп |
+| 63 | Door contact 1 and 2 open | Закрыть защитные двери |
+| 64 | Door contact 1 open | Закрыть дверь 1 |
+| 65 | Door contact 2 open | Закрыть дверь 2 |
+| 76 | Stand-By | Генератор в режиме ожидания — нормально |
+| 106 | Warm-up necessary | Требуется прогрев (автоматически выполняется в `on_high_voltage()`) |
+| 116 | Warm-up terminated after 3 attempts | Не удалось прогреться — проверить оборудование |
+
+## Запуск тестов
+
+```bash
+# Рекомендуемый способ — добавить пользователя в группу dialout:
+sudo usermod -a -G dialout $USER
+# перелогиниться, затем:
+
+# Все тесты источника
+pytest --log-cli-level=INFO -s -v drivers/tests/test_source.py
+
+# Только диагностика (не включает ВН)
+pytest --log-cli-level=INFO -s -v drivers/tests/test_source.py::TestSourceDiagnostics
+
+# Mock-тесты (не требуют реального устройства)
+pytest --log-cli-level=INFO -s -v drivers/tests/test_source.py::TestSourceMock
+```
+
+Альтернатива — запуск внутри Docker-контейнера с доступом к устройству:
+
+```bash
+docker exec -it rbtm-tomograph-server \
+    python -m pytest /xtomo/drivers/tests/test_source.py -v -s
+```
+
+Тесты `TestSourceHighVoltage` автоматически пропускаются если interlock открыт.
 
 ## Зависимости
 
