@@ -155,6 +155,11 @@ class HWDetector(object):
     # ------------------------------------------------------------------
 
     def close(self):
+        # Guard against double-close: atexit may call this after an explicit
+        # close() from a pytest fixture or user code. cam.CAM_OPEN is the
+        # authoritative flag set by xiapi.Camera.
+        if not self.cam.CAM_OPEN:
+            return
         try:
             if self._acquisition_active:
                 self.cam.stop_acquisition()
