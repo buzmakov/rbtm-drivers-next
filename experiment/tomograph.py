@@ -23,6 +23,7 @@ class Tomograph:
                                      redis_host=redis_host,
                                      redis_port=redis_port,
                                      redis_db=redis_db,
+                                     timeout=600,  # 10 мин — на случай прогрева источника
                                      )
         self.hwtomo = HWTomographProxy()
         self.current_experiment = None
