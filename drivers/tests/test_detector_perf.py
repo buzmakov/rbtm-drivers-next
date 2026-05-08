@@ -31,9 +31,14 @@ BENCH_PARAMS = [
 # ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def detector():
-    """Open HWDetector once per test and guarantee close() on teardown.
+    """Open HWDetector ONCE per pytest session and close at the very end.
+
+    session scope prevents repeated USB open/close cycles between parametrised
+    test cases — each cycle may fail with ERROR 1 (Invalid handle) if the USB
+    stack has not settled after the previous close_device().
+
     XI_DL_FATAL suppresses xiAPI verbose stdout during benchmark runs.
     """
     d = HWDetector()
