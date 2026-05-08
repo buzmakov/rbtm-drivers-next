@@ -1,10 +1,19 @@
 # pytest --log-cli-level=INFO -s -v test_detector.py
 import logging
+import pytest
 import numpy as np
 from ..Detector.Detector import HWDetector
 
 
-def test_detector_connection():
+@pytest.fixture
+def detector():
+    """Open HWDetector once per test and guarantee close() on teardown."""
+    d = HWDetector()
+    yield d
+    d.close()
+
+
+def test_detector_connection(detector):
     """Быстрая проверка подключения детектора и чтение метаданных.
 
     Проверяет:
@@ -14,25 +23,23 @@ def test_detector_connection():
     - get_state() возвращает словарь с ключами exposure, sensor_temp, hous_temp.
     - Температуры в допустимом диапазоне (-50 … 50 °C).
     """
-    d = HWDetector()
-
-    model = d.get_model()
+    model = detector.get_model()
     logging.info("Detector model: %s", model)
     assert isinstance(model, str) and len(model) > 0, \
         "get_model() должен вернуть непустую строку"
 
-    pixel_size = d.get_pixel_size()
+    pixel_size = detector.get_pixel_size()
     logging.info("Pixel size: %s mm", pixel_size)
     assert isinstance(pixel_size, float) and pixel_size > 0, \
         "get_pixel_size() должен вернуть положительное число"
 
-    state = d.get_state()
+    state = detector.get_state()
     logging.info("Detector state: %s", state)
     for key in ('exposure', 'sensor_temp', 'hous_temp'):
         assert key in state, "get_state() должен содержать ключ '{}'".format(key)
 
-    sensor_temp = d.get_sensor_temp()
-    hous_temp = d.get_hous_temp()
+    sensor_temp = detector.get_sensor_temp()
+    hous_temp = detector.get_hous_temp()
     logging.info("Sensor temp: %.2f °C, Housing temp: %.2f °C", sensor_temp, hous_temp)
     assert -50 < sensor_temp < 50, \
         "Температура сенсора вне допустимого диапазона: {}".format(sensor_temp)
@@ -40,7 +47,7 @@ def test_detector_connection():
         "Температура корпуса вне допустимого диапазона: {}".format(hous_temp)
 
 
-def test_detector_capture():
+def test_detector_capture(detector):
     """Захват одного кадра с экспозицией 0.1 с.
 
     Проверяет:
@@ -48,9 +55,7 @@ def test_detector_capture():
     - Размер кадра ненулевой по обоим измерениям.
     - Логируются mean и max пикселей для визуальной оценки.
     """
-    d = HWDetector()
-
-    frame = d.get_frames(exposure=0.1, number_frames=1)
+    frame = detector.get_frames(exposure=0.1, number_frames=1)
     logging.info("Frame shape: %s, dtype: %s", frame.shape, frame.dtype)
     logging.info("Frame mean: %.1f, max: %d", frame.mean(), frame.max())
 

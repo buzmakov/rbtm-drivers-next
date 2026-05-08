@@ -31,6 +31,14 @@ BENCH_PARAMS = [
 # ──────────────────────────────────────────────────────────────────────
 
 
+@pytest.fixture
+def detector():
+    """Open HWDetector once per test and guarantee close() on teardown."""
+    d = HWDetector()
+    yield d
+    d.close()
+
+
 def _capture_legacy(detector: HWDetector, exposure_s: float, n: int) -> list[float]:
     """Capture n frames in legacy mode (start/stop per call). Returns per-frame times."""
     times = []
@@ -75,7 +83,7 @@ def _report(label: str, times: list[float]) -> dict:
 
 
 @pytest.mark.parametrize("exposure_s, n_frames", BENCH_PARAMS)
-def test_detector_perf_comparison(exposure_s: float, n_frames: int):
+def test_detector_perf_comparison(detector, exposure_s: float, n_frames: int):
     """Compare per-frame timing of legacy vs persistent-trigger acquisition.
 
     Parametrised exposures: 0.1 s, 1 s, 10 s.
@@ -86,30 +94,28 @@ def test_detector_perf_comparison(exposure_s: float, n_frames: int):
       (loose bound — real hardware should be significantly faster).
     - Overhead (mean - exposure) is logged for manual inspection.
     """
-    d = HWDetector()
-
     # ── correctness sanity check ──────────────────────────────────────
-    sample_legacy = d.get_frames(exposure=exposure_s, number_frames=1)
+    sample_legacy = detector.get_frames(exposure=exposure_s, number_frames=1)
     assert isinstance(sample_legacy, np.ndarray) and sample_legacy.dtype == np.uint16, \
         "Legacy frame must be uint16 ndarray"
 
-    d.start_acquisition(exposure=exposure_s, use_trigger=True)
-    sample_trigger = d.get_frames(exposure=exposure_s, number_frames=1)
-    d.stop_acquisition()
+    detector.start_acquisition(exposure=exposure_s, use_trigger=True)
+    sample_trigger = detector.get_frames(exposure=exposure_s, number_frames=1)
+    detector.stop_acquisition()
     assert isinstance(sample_trigger, np.ndarray) and sample_trigger.dtype == np.uint16, \
         "Trigger-mode frame must be uint16 ndarray"
 
     # ── warm up (discard first frame to avoid cold-start bias) ─────────
-    d.get_frames(exposure=exposure_s, number_frames=1)
+    detector.get_frames(exposure=exposure_s, number_frames=1)
 
     # ── legacy benchmark ───────────────────────────────────────────────
     logging.info("=== LEGACY MODE  exposure=%.1f s, n=%d ===", exposure_s, n_frames)
-    legacy_times = _capture_legacy(d, exposure_s, n_frames)
+    legacy_times = _capture_legacy(detector, exposure_s, n_frames)
     legacy = _report("legacy", legacy_times)
 
     # ── persistent + software trigger benchmark ────────────────────────
     logging.info("=== PERSISTENT TRIGGER MODE  exposure=%.1f s, n=%d ===", exposure_s, n_frames)
-    trig_times = _capture_persistent(d, exposure_s, n_frames, use_trigger=True)
+    trig_times = _capture_persistent(detector, exposure_s, n_frames, use_trigger=True)
     trig = _report("persistent_trigger", trig_times)
 
     # ── summary ───────────────────────────────────────────────────────
