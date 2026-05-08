@@ -1,7 +1,6 @@
 import datetime
 import time
 import json
-import threading
 
 from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
@@ -30,7 +29,6 @@ class Tomograph:
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
-        self._source_busy = False  # True пока on_high_voltage выполняется в фоне
 
     # def __del__(self):
     #     del self.hwtomo
@@ -48,29 +46,13 @@ class Tomograph:
             return 'ready', ""
 
     def source_power_on(self):
-        """Включить высокое напряжение источника в фоновом потоке.
+        """Включить высокое напряжение источника.
 
-        Запускает on_high_voltage() асинхронно, так как он может занимать
-        значительное время (прогрев трубки). Пока идёт включение,
-        флаг _source_busy == True.
-
-        Raises:
-            ModExpError: если источник уже находится в процессе включения.
+        Делегирует в HWTomograph.source_power_on_async() — поток запускается
+        на стороне tomograph_server, Redis-прокси возвращается мгновенно
+        и не блокирует обработку других запросов.
         """
-        if self._source_busy:
-            raise ModExpError(error='Источник уже включается, подождите')
-
-        def _do():
-            self._source_busy = True
-            try:
-                self.hwtomo.source.on_high_voltage()
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).error('source_power_on error: %s', e)
-            finally:
-                self._source_busy = False
-
-        threading.Thread(target=_do, daemon=True).start()
+        self.hwtomo.source_power_on_async()
 
     def source_power_off(self):
         """Выключить высокое напряжение источника."""
@@ -88,7 +70,11 @@ class Tomograph:
             on = bool(self.hwtomo.source.is_on_high_voltage())
         except Exception:
             on = False
-        return {'on': on, 'busy': self._source_busy}
+        try:
+            busy = bool(self.hwtomo.source_is_busy())
+        except Exception:
+            busy = False
+        return {'on': on, 'busy': busy}
 
     def source_set_voltage(self, new_voltage):
         if type(new_voltage) is not float:

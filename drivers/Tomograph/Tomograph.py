@@ -1,3 +1,6 @@
+import threading
+import logging
+
 from ..XRayShutter import XRayShutter
 from ..XRaySource import XRaySource
 from ..Motors import Motor
@@ -59,6 +62,8 @@ class HWTomograph(object):
 
         self.detector = Detector.HWDetector()
 
+        self._source_busy = False  # True пока on_high_voltage() выполняется в фоне
+
         self.devices = {'shutter': self.shutter,
                         'source': self.source,
                         'horizontal_motor': self.horizontal_motor,
@@ -78,6 +83,29 @@ class HWTomograph(object):
                 res[device] = state
 
         return res
+
+    def source_power_on_async(self):
+        """Включить высокое напряжение в фоновом потоке (не блокирует RedisProxyServer).
+
+        Сразу возвращает управление. Статус можно опросить через source_is_busy().
+        """
+        if self._source_busy:
+            return  # уже включается — игнорируем повторный вызов
+
+        def _do():
+            self._source_busy = True
+            try:
+                self.source.on_high_voltage()
+            except Exception as e:
+                logging.getLogger(__name__).error('source_power_on_async error: %s', e)
+            finally:
+                self._source_busy = False
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def source_is_busy(self):
+        """Вернуть True если включение источника ещё выполняется."""
+        return self._source_busy
 
     def set_state(self, options):
         pass
