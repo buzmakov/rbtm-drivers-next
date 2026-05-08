@@ -99,8 +99,15 @@ class HWDetector(object):
                 # Each frame starts only on explicit set_trigger_software(1)
                 self.cam.set_trigger_source("XI_TRG_SOFTWARE")
                 self.cam.set_trigger_selector("XI_TRG_SEL_FRAME_START")
-                # Accept next trigger while sensor reads out previous frame
-                self.cam.set_trigger_overlap("XI_TRG_OVERLAP_READ_OUT")
+                # Accept next trigger while sensor reads out previous frame.
+                # Not all models support this — skip silently if not implemented.
+                try:
+                    self.cam.set_trigger_overlap("XI_TRG_OVERLAP_READ_OUT")
+                except xiapi.Xi_error as _ov_err:
+                    tomo_logger.logger.warning(
+                        "Detector: trigger_overlap not supported by this model "
+                        "(%s) — continuing without overlap", str(_ov_err)
+                    )
 
             self.cam.start_acquisition()
             self._acquisition_active = True
