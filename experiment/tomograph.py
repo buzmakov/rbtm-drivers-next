@@ -6,6 +6,7 @@ from .experiment import ModExpError, Experiment, AdvancedExperiment, create_even
 from .constants import SUCCESSFUL_STOP_MSG
 # from drivers.Tomograph.Tomograph import HWTomograph
 from .redis_proxy import RedisProxy
+from drivers.utils import get_horizontal_motor_config
 
 from autologging import traced
 from . import tomo_logger
@@ -29,6 +30,11 @@ class Tomograph:
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
+
+        # Позиция парковки горизонтального мотора читается локально из конфига,
+        # чтобы избежать передачи через RedisProxy (LazyProxy не сериализуется в int).
+        horizontal_cfg = get_horizontal_motor_config()
+        self._move_object_outside = horizontal_cfg['move_object_outside']
 
     # def __del__(self):
     #     del self.hwtomo
@@ -144,12 +150,17 @@ class Tomograph:
 
         self.y_position = new_y
 
-    def set_angle(self, new_angle):
+    def set_angle(self, new_angle, blocking=False):
         """
         Повернуть угловой мотор на абсолютную позицию в градусах.
         Угол нормализуется в диапазон [0, 360).
 
         :param new_angle: int | float — угол в градусах.
+        :param blocking: bool — если True, ждать завершения движения перед возвратом.
+                         False (по умолчанию) — для ручного управления со страницы юстировки,
+                         чтобы Redis-сервер оставался отзывчивым.
+                         True — обязательно при съёмке кадров в эксперименте: кадр должен
+                         сниматься только после достижения целевого угла.
         :raises ModExpError: при неверном типе аргумента.
         """
         if type(new_angle) not in (int, float):
@@ -157,9 +168,7 @@ class Tomograph:
                 error='Incorrect type! Position type must be int or float, but it is ' + str(type(new_angle)))
 
         new_angle %= 360
-        # blocking=False: не блокируем Redis-сервер во время вращения,
-        # чтобы поллинг get_angle() со страницы adjustment работал в реальном времени
-        self.hwtomo.angle_motor.move_to_position_deg(new_angle, blocking=False)
+        self.hwtomo.angle_motor.move_to_position_deg(new_angle, blocking=blocking)
 
     def get_x(self):
         """
@@ -196,10 +205,11 @@ class Tomograph:
         """
         Переместить горизонтальный мотор в позицию парковки объекта
         (вывод образца из рентгеновского пучка).
-        Целевая позиция берётся из конфигурационного параметра move_object_outside.
+        Целевая позиция берётся из self._move_object_outside, которое читается
+        локально из конфига в __init__ — минуя RedisProxy (LazyProxy не сериализуется).
         """
-        outside_pos = self.hwtomo.horizontal_motor_move_object_outside
-        self.hwtomo.horizontal_motor.move_to_position(outside_pos)
+        # self._move_object_outside — обычный int, прочитанный в __init__ из конфига
+        self.hwtomo.horizontal_motor.move_to_position(self._move_object_outside)
         self.object_present = False
 
     def move_back(self):

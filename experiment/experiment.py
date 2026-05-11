@@ -7,6 +7,8 @@ import requests
 from io import BytesIO
 import numpy as np
 from scipy.ndimage import median_filter
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from .constants import EMERGENCY_STOP_MSG, STORAGE_FRAMES_URI, STORAGE_EXP_FINISH_URI, FRAME_PNG_FILENAME
@@ -185,7 +187,9 @@ class Experiment:
                 break
             # self.check_source()
             tomo_logger.info(f'Collecting frame {iangle}/{len(exp_angles)}')
-            self.tomograph.set_angle(float(current_angle))
+            # blocking=True: мотор должен достичь целевого угла ДО съёмки кадра.
+            # При blocking=False кадры снимались бы во время вращения — данные испорчены.
+            self.tomograph.set_angle(float(current_angle), blocking=True)
 
             for j in range(0, self.DATA_count_per_step):
                 self.get_and_send_frame(exposure=self.DATA_exposure, mode='data')
@@ -407,7 +411,8 @@ class AdvancedExperiment:
                 break
 
             current_angle = round(pos_index * self.data_angle_step, 4) % 360
-            self.tomograph.set_angle(float(current_angle))
+            # blocking=True: мотор должен достичь целевого угла ДО съёмки кадра.
+            self.tomograph.set_angle(float(current_angle), blocking=True)
 
             tomo_logger.info(f'Advanced: data position {pos_index}/{self.data_total}, angle={current_angle}')
 
@@ -462,15 +467,21 @@ def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, lock=None):
     s = BytesIO()
     np.savez_compressed(s, frame_data=image_numpy)
     logging.debug(image_numpy.shape)
-    # s.seek(0)
     del image_numpy
     data = {'data': json.dumps(frame_metadata_event)}
     files = {'file': s.getvalue()}
     if lock is not None:
         lock.acquire()
     try:
-        p = mp.Process(target=send_to_storage, args=(STORAGE_FRAMES_URI, data, lock, files))
-        p.start()
+        # Используем поток (threading.Thread) вместо Process, чтобы избежать дедлока:
+        # mp.Process при аварийном завершении не вызывает finally { lock.release() },
+        # что приводит к вечному ожиданию lock.acquire() в следующем кадре.
+        t = threading.Thread(
+            target=send_to_storage,
+            args=(STORAGE_FRAMES_URI, data, lock, files),
+            daemon=True,
+        )
+        t.start()
     except Exception:
         if lock is not None:
             lock.release()
