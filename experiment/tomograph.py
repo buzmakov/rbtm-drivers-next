@@ -69,8 +69,12 @@ class Tomograph:
 
         Returns:
             dict с ключами:
-                on   (bool) — True если высокое напряжение включено,
-                busy (bool) — True пока идёт процесс включения (warmup).
+                on     (bool) — True если высокое напряжение включено,
+                busy   (bool) — True пока идёт процесс включения (warmup),
+                mocked (bool) — True если источник работает в режиме заглушки
+                               (физически не подключён, mock=True в devices.cfg).
+                               В этом случае команды on/off игнорируются,
+                               а UI должен показывать «Не управляется».
         """
         try:
             on = bool(self.hwtomo.source.is_on_high_voltage())
@@ -80,7 +84,9 @@ class Tomograph:
             busy = bool(self.hwtomo.source_is_busy())
         except Exception:
             busy = False
-        return {'on': on, 'busy': busy}
+        # source.mock — флаг заглушки, установленный при инициализации HWSource
+        mocked = bool(getattr(self.hwtomo.source, 'mock', False))
+        return {'on': on, 'busy': busy, 'mocked': mocked}
 
     def source_set_voltage(self, new_voltage):
         if type(new_voltage) is not float:
