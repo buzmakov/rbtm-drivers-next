@@ -1,5 +1,4 @@
 import logging
-import multiprocessing as mp
 import threading
 import time
 import json
@@ -88,8 +87,7 @@ class Experiment:
         self.frame_num = 0
         self.to_be_stopped = False
         self.stop_exception = None
-        self.worker_process = None
-        self.network_lock = mp.Lock()
+        self.worker_thread = None   # threading.Thread для отправки кадра в storage
 
         # --- Статус и последний кадр (thread-safe) ---
         self._status_lock = threading.Lock()
@@ -152,11 +150,16 @@ class Experiment:
 
         self.frame_num += 1
 
-        if self.worker_process is not None:
-            self.worker_process.join()
+        # Ждём завершения отправки предыдущего кадра перед стартом следующей
+        if self.worker_thread is not None:
+            self.worker_thread.join()
 
-        self.worker_process = mp.Process(target=prepare_send_frame, args=(numpy_image_with_metadata, self, self.network_lock))
-        self.worker_process.start()
+        self.worker_thread = threading.Thread(
+            target=prepare_send_frame,
+            args=(numpy_image_with_metadata, self),
+            daemon=False,
+        )
+        self.worker_thread.start()
 
     def run(self):
         self.to_be_stopped = False
@@ -275,8 +278,7 @@ class AdvancedExperiment:
         self.frame_num = 0
         self.to_be_stopped = False
         self.stop_exception = None
-        self.worker_process = None
-        self.network_lock = mp.Lock()
+        self.worker_thread = None   # threading.Thread для отправки кадра в storage
 
         # --- Статус и последний кадр (thread-safe) ---
         self._status_lock = threading.Lock()
@@ -336,11 +338,16 @@ class AdvancedExperiment:
 
         self.frame_num += 1
 
-        if self.worker_process is not None:
-            self.worker_process.join()
+        # Ждём завершения отправки предыдущего кадра перед стартом следующей
+        if self.worker_thread is not None:
+            self.worker_thread.join()
 
-        self.worker_process = mp.Process(target=prepare_send_frame, args=(numpy_image_with_metadata, self, self.network_lock))
-        self.worker_process.start()
+        self.worker_thread = threading.Thread(
+            target=prepare_send_frame,
+            args=(numpy_image_with_metadata, self),
+            daemon=False,
+        )
+        self.worker_thread.start()
 
     def run(self):
         self.to_be_stopped = False
@@ -438,7 +445,10 @@ class AdvancedExperiment:
 
 # Frame functions
 # @traced
-def prepare_send_frame(numpy_image_with_metadata, experiment, lock=None):
+def prepare_send_frame(numpy_image_with_metadata, experiment):
+    """Подготовить и отправить кадр в storage.
+    Вызывается в отдельном потоке (threading.Thread) из get_and_send_frame().
+    """
     image_numpy = numpy_image_with_metadata['image_data']['raw_image']
     del numpy_image_with_metadata['image_data']['raw_image']
     frame_metadata = numpy_image_with_metadata
@@ -446,113 +456,99 @@ def prepare_send_frame(numpy_image_with_metadata, experiment, lock=None):
     try:
         if experiment:
             frame_metadata_event = create_event(event_type='frame', exp_id=experiment.exp_id, MoF=frame_metadata)
-            # frame_metadata_event = create_event(event_type='frame', exp_id=1, MoF=frame_metadata)
             send_frame_to_storage_webpage(frame_metadata_event=frame_metadata_event,
-                                          image_numpy=image_numpy, lock=lock)
+                                          image_numpy=image_numpy)
         else:
             make_png(image_numpy)
 
     except ModExpError as e:
-        # logging.error('Can\'t send frame number {} to server. {}'.format(numpy_image_with_metadata['number'], e.message))
         if experiment is not None:
             experiment.stop_exception = e
             experiment.to_be_stopped = True
         return False, e
 
-    # logging.debug('Sended frame number {} to server.'.format(numpy_image_with_metadata['number']))
     return True, None
 
 
-def send_frame_to_storage_webpage(frame_metadata_event, image_numpy, lock=None):
+def send_frame_to_storage_webpage(frame_metadata_event, image_numpy):
+    """Сжать кадр и синхронно отправить в storage.
+    Блокирует поток (threading.Thread) до завершения — это нормально,
+    так как get_and_send_frame() вызывает join() перед следующим кадром.
+    Lock больше не нужен: один поток на кадр, следующий ждёт join().
+    """
     s = BytesIO()
     np.savez_compressed(s, frame_data=image_numpy)
     logging.debug(image_numpy.shape)
     del image_numpy
     data = {'data': json.dumps(frame_metadata_event)}
     files = {'file': s.getvalue()}
-    if lock is not None:
-        lock.acquire()
-    try:
-        # Используем поток (threading.Thread) вместо Process, чтобы избежать дедлока:
-        # mp.Process при аварийном завершении не вызывает finally { lock.release() },
-        # что приводит к вечному ожиданию lock.acquire() в следующем кадре.
-        t = threading.Thread(
-            target=send_to_storage,
-            args=(STORAGE_FRAMES_URI, data, lock, files),
-            daemon=True,
-        )
-        t.start()
-    except Exception:
-        if lock is not None:
-            lock.release()
-        raise
+    send_to_storage(STORAGE_FRAMES_URI, data, files=files)
 
 
-def send_to_storage(storage_uri, data, lock=None, files=None):
+def send_to_storage(storage_uri, data, files=None):
+    """Отправить данные кадра в storage с повторными попытками.
+    Вызывается синхронно из send_frame_to_storage_webpage() в потоке threading.Thread.
+    Lock не нужен: изоляция обеспечивается join() в get_and_send_frame().
+    """
     max_retries = 3
     retry_delay = 5  # seconds between attempts
     last_error = None
-    try:
-        for attempt in range(max_retries):
-            try:
-                storage_resp = requests.post(storage_uri, files=files, data=data, timeout=120)
-            except Exception as e:
-                last_error = ModExpError(
-                    error='Problems with storage',
-                    exception_message='Could not send to storage (attempt {}/{}): {}'.format(
-                        attempt + 1, max_retries, str(e)))
-                logging.warning('send_to_storage: attempt {}/{} failed: {}'.format(
+    for attempt in range(max_retries):
+        try:
+            storage_resp = requests.post(storage_uri, files=files, data=data, timeout=120)
+        except Exception as e:
+            last_error = ModExpError(
+                error='Problems with storage',
+                exception_message='Could not send to storage (attempt {}/{}): {}'.format(
                     attempt + 1, max_retries, str(e)))
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                continue
+            logging.warning('send_to_storage: attempt {}/{} failed: {}'.format(
+                attempt + 1, max_retries, str(e)))
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            continue
 
-            try:
-                storage_resp_dict = json.loads(storage_resp.content)
-            except (ValueError, TypeError):
-                last_error = ModExpError(
-                    error='Problems with storage',
-                    exception_message='Storage\'s response is not JSON (attempt {}/{})'.format(
-                        attempt + 1, max_retries))
-                logging.warning('send_to_storage: response not JSON on attempt {}/{}'.format(
+        try:
+            storage_resp_dict = json.loads(storage_resp.content)
+        except (ValueError, TypeError):
+            last_error = ModExpError(
+                error='Problems with storage',
+                exception_message='Storage\'s response is not JSON (attempt {}/{})'.format(
                     attempt + 1, max_retries))
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                continue
+            logging.warning('send_to_storage: response not JSON on attempt {}/{}'.format(
+                attempt + 1, max_retries))
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            continue
 
-            if 'result' not in storage_resp_dict:
-                last_error = ModExpError(
-                    error='Problems with storage',
-                    exception_message="Storage's response has incorrect format (no 'result' key), attempt {}/{}".format(
-                        attempt + 1, max_retries))
-                logging.warning('send_to_storage: no "result" key on attempt {}/{}'.format(
+        if 'result' not in storage_resp_dict:
+            last_error = ModExpError(
+                error='Problems with storage',
+                exception_message="Storage's response has incorrect format (no 'result' key), attempt {}/{}".format(
                     attempt + 1, max_retries))
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                continue
+            logging.warning('send_to_storage: no "result" key on attempt {}/{}'.format(
+                attempt + 1, max_retries))
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            continue
 
-            if storage_resp_dict['result'] != 'success':
-                last_error = ModExpError(
-                    error='Problems with storage',
-                    exception_message='Storage\'s response: {} (attempt {}/{})'.format(
-                        str(storage_resp_dict['result']), attempt + 1, max_retries))
-                logging.warning('send_to_storage: non-success result on attempt {}/{}: {}'.format(
-                    attempt + 1, max_retries, storage_resp_dict['result']))
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                continue
+        if storage_resp_dict['result'] != 'success':
+            last_error = ModExpError(
+                error='Problems with storage',
+                exception_message='Storage\'s response: {} (attempt {}/{})'.format(
+                    str(storage_resp_dict['result']), attempt + 1, max_retries))
+            logging.warning('send_to_storage: non-success result on attempt {}/{}: {}'.format(
+                attempt + 1, max_retries, storage_resp_dict['result']))
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            continue
 
-            # Success
-            logging.debug('send_to_storage: success on attempt {}/{}'.format(attempt + 1, max_retries))
-            return
+        logging.debug('send_to_storage: success on attempt {}/{}'.format(attempt + 1, max_retries))
+        return
 
-        # All retries exhausted
-        raise last_error or ModExpError(
-            error='Problems with storage',
-            exception_message='All {} retries exhausted'.format(max_retries))
-    finally:
-        if lock is not None:
-            lock.release()
+    # All retries exhausted
+    raise last_error or ModExpError(
+        error='Problems with storage',
+        exception_message='All {} retries exhausted'.format(max_retries))
 
 
 def make_preview_data(image_numpy, downsample=4):
