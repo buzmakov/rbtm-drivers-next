@@ -1,5 +1,7 @@
 # import logging
+import concurrent.futures
 import sys
+import numpy as np
 
 #check os
 try: 
@@ -212,11 +214,33 @@ class HWDetector(object):
     # Frame capture
     # ------------------------------------------------------------------
 
+    # Дополнительный запас времени (сек) поверх экспозиции для hard timeout watchdog.
+    # Покрывает время передачи данных, USB-задержки, jitter.
+    _HARD_TIMEOUT_MARGIN_S = 15.0
+
+    def _capture_one_frame(self, timeout_us):
+        """Захватить один кадр.
+        Вызывается из get_frames() в отдельном потоке через concurrent.futures,
+        чтобы применить внешний (hard) таймаут независимо от XIMEA SDK.
+        """
+        if self._trigger_mode:
+            self.cam.set_trigger_software(1)
+        self.cam.get_image(self._img, timeout=timeout_us)
+        return self._img.get_image_data_numpy().astype(np.uint32)
+
     def get_frames(self, exposure, number_frames=1):
         """Capture and return frames as a uint16 numpy array.
 
         :param exposure: exposition in seconds
         :param number_frames: number of frames to sum (accumulate in uint32)
+
+        Каждый вызов `get_image()` выполняется в отдельном потоке через
+        `concurrent.futures.ThreadPoolExecutor` с жёстким (hard) таймаутом.
+        Это защищает от зависания XIMEA SDK при USB-обрыве: SDK входит
+        в бесконечный цикл сброса эндпоинтов и никогда не выбрасывает исключение,
+        даже если SDK-таймаут `timeout_us` установлен.
+
+        Hard timeout = exposure × 2 + _HARD_TIMEOUT_MARGIN_S (15 сек по умолчанию).
 
         Behaviour depends on acquisition state:
 
@@ -232,29 +256,39 @@ class HWDetector(object):
           Classic start_acquisition → get_image × N → stop_acquisition per call.
           Always correct, slower by ~100–250 ms per call.
         """
-        import numpy as np
         exposure_us = int(round(exposure * 1e6))
+        # Hard timeout: экспозиция × 2 + запас на USB/transfer jitter
+        hard_timeout_s = exposure * 2 + self._HARD_TIMEOUT_MARGIN_S
         data = None
 
         try:
             if self._acquisition_active:
                 # ── Optimised path ──────────────────────────────────────
                 if exposure_us != self._current_exposure_us:
-                    # Change exposure without restarting acquisition
                     self.cam.set_exposure_direct(exposure_us)
                     self._current_exposure_us = exposure_us
 
                 timeout_us = int(exposure_us * 1.5 + 500_000)
 
                 for frame_numb in range(number_frames):
-                    if self._trigger_mode:
-                        # Fire the software trigger — camera starts exposing NOW
-                        self.cam.set_trigger_software(1)
-                    self.cam.get_image(self._img, timeout=timeout_us)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        future = ex.submit(self._capture_one_frame, timeout_us)
+                        try:
+                            frame_data = future.result(timeout=hard_timeout_s)
+                        except concurrent.futures.TimeoutError:
+                            tomo_logger.logger.critical(
+                                "Detector: get_image HARD TIMEOUT (%.1fs) — "
+                                "USB hang detected. Завершаем tomograph_server "
+                                "для автоматического перезапуска Docker.",
+                                hard_timeout_s,
+                            )
+                            # sys.exit(1): Docker (restart: unless-stopped) перезапустит
+                            # контейнер и переинициализирует XIMEA SDK.
+                            sys.exit(1)
                     if frame_numb == 0:
-                        data = self._img.get_image_data_numpy().astype(np.uint32)
+                        data = frame_data
                     else:
-                        data += self._img.get_image_data_numpy().astype(np.uint32)
+                        data += frame_data
 
             else:
                 # ── Legacy path (fallback) ───────────────────────────────
@@ -263,13 +297,26 @@ class HWDetector(object):
                 timeout_us = int(exposure_us * 1.5 + 500_000)
 
                 self.cam.start_acquisition()
-                for frame_numb in range(number_frames):
-                    self.cam.get_image(self._img, timeout=timeout_us)
-                    if frame_numb == 0:
-                        data = self._img.get_image_data_numpy().astype(np.uint32)
-                    else:
-                        data += self._img.get_image_data_numpy().astype(np.uint32)
-                self.cam.stop_acquisition()
+                try:
+                    for frame_numb in range(number_frames):
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                            future = ex.submit(self._capture_one_frame, timeout_us)
+                            try:
+                                frame_data = future.result(timeout=hard_timeout_s)
+                            except concurrent.futures.TimeoutError:
+                                tomo_logger.logger.critical(
+                                    "Detector: get_image HARD TIMEOUT (%.1fs) — "
+                                    "USB hang detected. Завершаем tomograph_server "
+                                    "для автоматического перезапуска Docker.",
+                                    hard_timeout_s,
+                                )
+                                sys.exit(1)
+                        if frame_numb == 0:
+                            data = frame_data
+                        else:
+                            data += frame_data
+                finally:
+                    self.cam.stop_acquisition()
 
         except xiapi.Xi_error as err:
             # If persistent acquisition broke mid-series — mark it stopped so

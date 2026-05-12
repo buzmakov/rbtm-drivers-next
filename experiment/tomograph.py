@@ -23,7 +23,11 @@ class Tomograph:
                                      redis_host=redis_host,
                                      redis_port=redis_port,
                                      redis_db=redis_db,
-                                     timeout=600,  # 10 мин — на случай прогрева источника
+                                     # 60 сек: покрывает полный оборот мотора (~65 с при speed=500)
+                                     # + детектор с watchdog бросает ошибку раньше через hard timeout.
+                                     # Было 600 сек × 3 попытки = 30 мин при USB-зависании.
+                                     timeout=60,
+                                     max_retries=1,
                                      )
         self.hwtomo = HWTomographProxy()
         self.current_experiment = None
