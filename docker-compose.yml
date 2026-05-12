@@ -45,19 +45,25 @@ services:
       # после переподключения без изменения конфига или перезапуска.
       - "/dev/bus/usb:/dev/bus/usb"
     devices:
-      - "/dev/ttyACM2:/dev/ttyACM2"
-      - "/dev/ttyACM1:/dev/ttyACM1"
+      # ttyACM* — контроллеры моторов XIMC и затвор.
+      # Числа могут меняться при переподключении USB, поэтому пробрасываем все
+      # возможные номера. docker-entrypoint.sh восстанавливает симлинки
+      # /dev/ximc/<SERIAL> -> /dev/ttyACMX внутри контейнера через sysfs,
+      # благодаря чему devices.cfg (xi-com:///dev/ximc/<SERIAL>) остаётся стабильным.
       - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/ttyACM1:/dev/ttyACM1"
+      - "/dev/ttyACM2:/dev/ttyACM2"
+      - "/dev/ttyACM3:/dev/ttyACM3"
+      - "/dev/ttyACM4:/dev/ttyACM4"
       # FireWire: задать XIMEA_CAMERA_DEVICE=/dev/fw1:/dev/fw1 в restart_fw.sh
       # USB: переменная не нужна — камера доступна через /dev/bus/usb volume
       # Дефолт /dev/null — безвредный fallback когда переменная не задана
       - "${XIMEA_CAMERA_DEVICE:-/dev/null:/dev/null}"
-      - "/dev/ximc/0000037A:/dev/ximc/0000037A"
-      - "/dev/ximc/00000271:/dev/ximc/00000271"
       # - "/dev/ttyUSB0:/dev/ttyUSB0"
     # Разрешить доступ к USB-символьным устройствам (major 189 = /dev/bus/usb/*)
     device_cgroup_rules:
       - "c 189:* rmw"
     environment:
       - LD_LIBRARY_PATH=/xtomo/vendor/ximea/libs/libusb/X64:/xtomo/vendor/ximea/libs/libraw1394/X64:/xtomo/vendor/ximea/api/X64
+    entrypoint: ["/xtomo/docker-entrypoint.sh"]
     command: python tomograph_server.py
