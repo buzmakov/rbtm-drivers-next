@@ -4,7 +4,7 @@ ENV TZ=Europe/Moscow
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update
-RUN apt-get install -y libtiff5 libusb-1.0-0 libraw1394-dev
+RUN apt-get install -y libtiff5 libusb-1.0-0 libraw1394-dev libcurl4
 COPY requirements.txt /xtomo/requirements.txt
 WORKDIR /xtomo
 
