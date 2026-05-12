@@ -101,6 +101,11 @@ class Experiment:
             'current_angle': 0.0,
             'start_time': None,
             'timeline': [],
+            # Unix timestamp последнего снятого кадра (time.time()).
+            # Используется фронтендом для детекции зависания:
+            # если now() - last_frame_at > порога → показываем предупреждение.
+            # None до первого кадра.
+            'last_frame_at': None,
         }
 
     def _update_status(self, mode=None, angle=None):
@@ -115,6 +120,10 @@ class Experiment:
             if self._start_time is None:
                 self._start_time = time.time()
                 self.status_dict['start_time'] = self._start_time
+            # Фиксируем момент снятия кадра. Фронтенд сравнивает это значение
+            # с текущим временем браузера; если разница превышает порог —
+            # показывается предупреждение о возможном зависании.
+            self.status_dict['last_frame_at'] = time.time()
             # Обновляем таймлайн: добавляем к последней группе или создаём новую
             tl = self.status_dict['timeline']
             if mode is not None:
@@ -292,6 +301,11 @@ class AdvancedExperiment:
             'current_angle': 0.0,
             'start_time': None,
             'timeline': [],
+            # Unix timestamp последнего снятого кадра (time.time()).
+            # Используется фронтендом для детекции зависания:
+            # если now() - last_frame_at > порога → показываем предупреждение.
+            # None до первого кадра.
+            'last_frame_at': None,
         }
 
     def _update_status(self, mode=None, angle=None):
@@ -305,6 +319,10 @@ class AdvancedExperiment:
             if self._start_time is None:
                 self._start_time = time.time()
                 self.status_dict['start_time'] = self._start_time
+            # Фиксируем момент снятия кадра. Фронтенд сравнивает это значение
+            # с текущим временем браузера; если разница превышает порог —
+            # показывается предупреждение о возможном зависании.
+            self.status_dict['last_frame_at'] = time.time()
             tl = self.status_dict['timeline']
             if mode is not None:
                 if tl and tl[-1]['mode'] == mode:
