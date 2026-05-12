@@ -3,8 +3,9 @@ FROM continuumio/miniconda3:23.10.0-1
 ENV TZ=Europe/Moscow
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 ENV DEBIAN_FRONTEND=noninteractive
-# Debian Bullseye (EOL) security packages moved to archive.debian.org
-RUN sed -i 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' /etc/apt/sources.list && \
+# Debian Bullseye (EOL): remove debian-security repo (no longer available),
+# libcurl4 and other packages are available from the main bullseye archive.
+RUN sed -i '/debian-security/d' /etc/apt/sources.list && \
     apt-get update && \
     apt-get install -y libtiff5 libusb-1.0-0 libraw1394-dev libcurl4
 COPY requirements.txt /xtomo/requirements.txt
