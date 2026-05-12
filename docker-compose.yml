@@ -41,14 +41,23 @@ services:
         condition: service_started
     volumes:
       - "./logs/tomo_server:/xtomo/logs"
+      # Монтируем всю USB-шину: XIMEA-камера доступна на любом порту
+      # после переподключения без изменения конфига или перезапуска.
+      - "/dev/bus/usb:/dev/bus/usb"
     devices:
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM1:/dev/ttyACM1"
       - "/dev/ttyACM0:/dev/ttyACM0"
-      - ${XIMEA_CAMERA_DEVICE}
+      # FireWire: задать XIMEA_CAMERA_DEVICE=/dev/fw1:/dev/fw1 в restart_fw.sh
+      # USB: переменная не нужна — камера доступна через /dev/bus/usb volume
+      # Дефолт /dev/null — безвредный fallback когда переменная не задана
+      - "${XIMEA_CAMERA_DEVICE:-/dev/null:/dev/null}"
       - "/dev/ximc/0000037A:/dev/ximc/0000037A"
       - "/dev/ximc/00000271:/dev/ximc/00000271"
-      # - "/dev/ttyUSB0:/dev/ttyU"
+      # - "/dev/ttyUSB0:/dev/ttyUSB0"
+    # Разрешить доступ к USB-символьным устройствам (major 189 = /dev/bus/usb/*)
+    device_cgroup_rules:
+      - "c 189:* rmw"
     environment:
       - LD_LIBRARY_PATH=/xtomo/vendor/ximea/libs/libusb/X64:/xtomo/vendor/ximea/libs/libraw1394/X64:/xtomo/vendor/ximea/api/X64
     command: python tomograph_server.py
