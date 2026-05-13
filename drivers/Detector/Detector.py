@@ -261,6 +261,10 @@ class HWDetector(object):
         hard_timeout_s = exposure * 2 + self._HARD_TIMEOUT_MARGIN_S
         data = None
 
+        # get_image() принимает timeout в МИЛЛИСЕКУНДАХ (см. xiapi.py).
+        # exposure_us — в микросекундах, поэтому делим на 1000, добавляем 500 мс запаса.
+        timeout_ms = int(exposure_us * 1.5 / 1000 + 500)
+
         try:
             if self._acquisition_active:
                 # ── Optimised path ──────────────────────────────────────
@@ -268,11 +272,9 @@ class HWDetector(object):
                     self.cam.set_exposure_direct(exposure_us)
                     self._current_exposure_us = exposure_us
 
-                timeout_us = int(exposure_us * 1.5 + 500_000)
-
                 for frame_numb in range(number_frames):
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                        future = ex.submit(self._capture_one_frame, timeout_us)
+                        future = ex.submit(self._capture_one_frame, timeout_ms)
                         try:
                             frame_data = future.result(timeout=hard_timeout_s)
                         except concurrent.futures.TimeoutError:
@@ -294,13 +296,12 @@ class HWDetector(object):
                 # ── Legacy path (fallback) ───────────────────────────────
                 self.cam.set_exposure(exposure_us)
                 self._current_exposure_us = exposure_us
-                timeout_us = int(exposure_us * 1.5 + 500_000)
 
                 self.cam.start_acquisition()
                 try:
                     for frame_numb in range(number_frames):
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                            future = ex.submit(self._capture_one_frame, timeout_us)
+                            future = ex.submit(self._capture_one_frame, timeout_ms)
                             try:
                                 frame_data = future.result(timeout=hard_timeout_s)
                             except concurrent.futures.TimeoutError:

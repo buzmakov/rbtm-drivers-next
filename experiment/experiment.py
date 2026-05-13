@@ -176,8 +176,10 @@ class Experiment:
         self.tomograph.source_power_on()
         self.tomograph.reset_to_zero_angle()
         self.collect_dark_frames()
-        self.collect_empty_frames()
-        self.collect_data_frames()
+        if not self.to_be_stopped:
+            self.collect_empty_frames()
+        if not self.to_be_stopped:
+            self.collect_data_frames()
         self.tomograph.close_shutter()
         self.tomograph.source_power_off()
         # Если была запрошена остановка — сообщаем об этом

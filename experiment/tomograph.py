@@ -331,6 +331,8 @@ class Tomograph:
         except ModExpError as e:
             event_for_send = e.to_event_dict(exp_id)
         except Exception as e:
+            import logging as _logging
+            _logging.exception("carry_out_simple_experiment: unexpected error (exp_id=%s)", exp_id)
             err = ModExpError(error='Unexpected error: {}'.format(str(e)))
             event_for_send = err.to_event_dict(exp_id)
         finally:
@@ -349,6 +351,8 @@ class Tomograph:
         except ModExpError as e:
             event_for_send = e.to_event_dict(exp_id)
         except Exception as e:
+            import logging as _logging
+            _logging.exception("carry_out_advanced_experiment: unexpected error (exp_id=%s)", exp_id)
             err = ModExpError(error='Unexpected error: {}'.format(str(e)))
             event_for_send = err.to_event_dict(exp_id)
         finally:
