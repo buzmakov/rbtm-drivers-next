@@ -260,7 +260,7 @@ class HWSource(object):
             return
         logging.debug('Source.on_high_voltage() starting...')
         for attempt in range(3):
-            self.serial_port.write("HV:1\n".encode())
+            self._write_command("HV:1")
             error = self.get_error()
             if error is None:
                 break
@@ -287,7 +287,7 @@ class HWSource(object):
         if self.mock:
             return
         logging.debug('Source.off_high_voltage() starting...')
-        self.serial_port.write("HV:0\n".encode())
+        self._write_command("HV:0")
         error = self.get_error()
         if error is not None:
             logging.error("Source.off_high_voltage() error: {}".format(error))
@@ -319,14 +319,14 @@ class HWSource(object):
             return
         logging.debug('Source.warmup() starting...')
         voltage = self.get_nominal_voltage()
-        self.serial_port.write("WU:4,{}\n".format(
-            str(int(round(voltage))).zfill(3)).encode())
+        self._write_command("WU:4,{}".format(
+            str(int(round(voltage))).zfill(3)))
         error = self.get_error()
         if error is not None:
             logging.error("Source.warmup() WU error: {}".format(error))
             raise RuntimeError("Source.warmup() WU error: {}".format(error))
 
-        self.serial_port.write("HV:1\n".encode())
+        self._write_command("HV:1")
         error = self.get_error()
         if error is not None:
             logging.error("Source.warmup() HV error: {}".format(error))
@@ -376,7 +376,7 @@ class HWSource(object):
         if word_number not in [1, 6, 12, 30]:
             logging.error("Source.read_status_word(): unknown word number %d", word_number)
 
-        self.serial_port.write("SR:{}\n".format(str(word_number).zfill(2)).encode())
+        self._write_command("SR:{}".format(str(word_number).zfill(2)))
         answer = self.get_data_string()
         logging.debug('Source.read_status_word(%d) finished.', word_number)
         return self.get_number(answer)
@@ -501,7 +501,7 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_nominal_voltage() starting...')
-        self.serial_port.write("VN\n".encode())
+        self._write_command("VN")
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
@@ -531,7 +531,7 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_voltage() starting...')
         try:
-            self.serial_port.write("VA\n".encode())
+            self._write_command("VA")
             answer = self.get_data_string()
             error = self.get_error()
             if error is not None:
@@ -564,7 +564,7 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_nominal_current() starting...')
-        self.serial_port.write("CN\n".encode())
+        self._write_command("CN")
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
@@ -593,7 +593,7 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_current() starting...')
         try:
-            self.serial_port.write("CA\n".encode())
+            self._write_command("CA")
             answer = self.get_data_string()
             error = self.get_error()
             if error is not None:
@@ -627,7 +627,7 @@ class HWSource(object):
             return cached
 
         logging.debug('Source.get_nominal_power() starting...')
-        self.serial_port.write("PN\n".encode())
+        self._write_command("PN")
         answer = self.get_data_string()
         error = self.get_error()
 
@@ -661,7 +661,7 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_power() starting...')
         try:
-            self.serial_port.write("PA\n".encode())
+            self._write_command("PA")
             answer = self.get_data_string()
             error = self.get_error()
             if error is not None:
@@ -694,8 +694,8 @@ class HWSource(object):
         if self.mock:
             return
         logging.debug('Source.set_voltage() starting...')
-        command = "SV:{}\n".format(str(int(round(voltage * 1000))).zfill(6)).encode()
-        self.serial_port.write(command)
+        command = "SV:{}".format(str(int(round(voltage * 1000))).zfill(6))
+        self._write_command(command)
 
         error = self.get_error()
         if error is not None:
@@ -722,8 +722,8 @@ class HWSource(object):
         if self.mock:
             return
         logging.debug('Source.set_current() starting...')
-        command = "SC:{}\n".format(str(int(round(current * 1000))).zfill(6)).encode()
-        self.serial_port.write(command)
+        command = "SC:{}".format(str(int(round(current * 1000))).zfill(6))
+        self._write_command(command)
 
         error = self.get_error()
         if error is not None:
@@ -745,8 +745,8 @@ class HWSource(object):
         if self.mock:
             return
         logging.debug('Source.set_power() starting...')
-        command = "SP:{}\n".format(str(int(round(power * 1000))).zfill(6)).encode()
-        self.serial_port.write(command)
+        command = "SP:{}".format(str(int(round(power * 1000))).zfill(6))
+        self._write_command(command)
 
         error = self.get_error()
         if error is not None:
@@ -776,7 +776,7 @@ class HWSource(object):
             return self.device_id
 
         logging.debug('Source.get_id() starting...')
-        self.serial_port.write("ID\n".encode())
+        self._write_command("ID")
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
@@ -804,7 +804,7 @@ class HWSource(object):
             return self.tube_name
 
         logging.debug('Source.get_tube_name() starting...')
-        self.serial_port.write("XT\n".encode())
+        self._write_command("XT")
         answer = self.get_data_string()
         error = self.get_error()
         if error is not None:
@@ -828,7 +828,7 @@ class HWSource(object):
         """
         if self.mock:
             return None
-        self.serial_port.write("SR:12\n".encode())
+        self._write_command("SR:12")
         answer = self.get_data_string()
         try:
             error_code = int(answer[1:])
@@ -853,7 +853,7 @@ class HWSource(object):
         if self.mock:
             return
         logging.debug('Source.reset_error(%d) starting...', code)
-        self.serial_port.write("RE:{}\n".format(str(code).zfill(2)).encode())
+        self._write_command("RE:{}".format(str(code).zfill(2)))
         sleep(0.2)
         error = self.get_error()
         if error is not None and error['code'] == code:
@@ -875,10 +875,13 @@ class HWSource(object):
         """
         if self.mock:
             return "*0"
-        sleep(0.5)
         line = self.serial_port.read_until(b'\r')
         logging.debug("Source.get_data_string(): raw=%r", line)
-        return line.decode().strip()
+        answer = line.decode().strip()
+        # Проверка: ответ должен начинаться с '*'
+        if not answer.startswith('*'):
+            logging.warning("Source.get_data_string(): unexpected response %r (expected to start with '*')", answer)
+        return answer
 
     def _write_command(self, command):
         """Отправить команду на устройство с корректным окончанием строки.

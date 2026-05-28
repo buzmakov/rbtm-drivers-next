@@ -59,7 +59,7 @@ services:
       # USB: переменная не нужна — камера доступна через /dev/bus/usb volume
       # Дефолт /dev/null — безвредный fallback когда переменная не задана
       - "${XIMEA_CAMERA_DEVICE:-/dev/null:/dev/null}"
-      # - "/dev/ttyUSB0:/dev/ttyUSB0"
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
     # Разрешить доступ к USB-символьным устройствам (major 189 = /dev/bus/usb/*)
     device_cgroup_rules:
       - "c 189:* rmw"
