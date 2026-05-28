@@ -68,29 +68,89 @@ class Tomograph:
         """Выключить высокое напряжение источника."""
         self.hwtomo.source.off_high_voltage()
 
+    def source_wait_for_ready(self, timeout=1800, poll_interval=5):
+        """Ожидать готовности рентгеновского источника.
+
+        Блокирует выполнение до тех пор, пока источник не выйдет из
+        состояния прогрева (busy=False) и высокое напряжение не включится (on=True).
+
+        Args:
+            timeout: максимальное время ожидания в секундах (по умолчанию 30 мин).
+            poll_interval: интервал опроса состояния в секундах.
+
+        Raises:
+            ModExpError: если источник не стал готов за отведённое время.
+        """
+        state = self.source_get_state()
+        if state.get('mocked'):
+            return
+
+        start = time.time()
+        while time.time() - start < timeout:
+            state = self.source_get_state()
+            if state.get('on') and not state.get('busy'):
+                return
+            time.sleep(poll_interval)
+
+        raise ModExpError(
+            error='X-ray source is warming up or failed to turn on',
+            exception_message='Source did not become ready within {} seconds. '
+                              'Please wait until warm-up completes and try again.'.format(timeout)
+        )
+
     def source_get_state(self):
         """Вернуть текущее состояние рентгеновского источника.
 
         Returns:
             dict с ключами:
-                on     (bool) — True если высокое напряжение включено,
-                busy   (bool) — True пока идёт процесс включения (warmup),
-                mocked (bool) — True если источник работает в режиме заглушки
-                               (физически не подключён, mock=True в devices.cfg).
-                               В этом случае команды on/off игнорируются,
-                               а UI должен показывать «Не управляется».
+                on             (bool) — True если высокое напряжение включено,
+                busy           (bool) — True пока идёт процесс включения (warmup),
+                mocked         (bool) — True если источник работает в режиме заглушки
+                                        (физически не подключён, mock=True в devices.cfg).
+                                        В этом случае команды on/off игнорируются,
+                                        а UI должен показывать «Не управляется».
+                warming_status (dict) — статус прогрева из get_status()['warming status']:
+                                        {
+                                          'in_progress':         bool,
+                                          'warming_interrupted': bool,
+                                          'warming_from_pc':     bool,
+                                          'warming_from_kb':     bool,
+                                        }
+                                        None если статус недоступен.
         """
         try:
             on = bool(self.hwtomo.source.is_on_high_voltage())
-        except Exception:
+        except Exception as e:
+            # Если источник не отвечает (например, в режиме прогрева),
+            # считаем, что HV не включено
             on = False
+            logging.getLogger(__name__).warning(
+                "source_get_state: is_on_high_voltage failed: %s (assuming on=False)", e)
         try:
             busy = bool(self.hwtomo.source_is_busy())
-        except Exception:
-            busy = False
+        except Exception as e:
+            # Если источник не отвечает, предполагаем, что он занят (прогревается)
+            busy = True
+            logging.getLogger(__name__).warning(
+                "source_get_state: source_is_busy failed: %s (assuming busy=True)", e)
+
+        # Читаем статус прогрева; используем snake_case для единообразия JSON
+        warming_status = None
+        try:
+            ws = self.hwtomo.source.get_status()['warming status']
+            warming_status = {
+                'in_progress':         ws['in progress'],
+                'warming_interrupted': ws['warming interrupted'],
+                'warming_from_pc':     ws['warming from pc'],
+                'warming_from_kb':     ws['warming from kb'],
+            }
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "source_get_state: get_status failed: %s (warming_status=None)", e)
+
         # source.mock — флаг заглушки, установленный при инициализации HWSource
         mocked = bool(getattr(self.hwtomo.source, 'mock', False))
-        return {'on': on, 'busy': busy, 'mocked': mocked}
+        return {'on': on, 'busy': busy, 'mocked': mocked, 'warming_status': warming_status}
 
     def source_set_voltage(self, new_voltage):
         if type(new_voltage) is not float:

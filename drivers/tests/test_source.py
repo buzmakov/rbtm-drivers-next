@@ -295,3 +295,36 @@ class TestSourceHighVoltage:
         hv_on = source.is_on_high_voltage()
         logging.info("HV on after off_high_voltage(): %s", hv_on)
         assert not hv_on, "После off_high_voltage() ВН должно быть выключено"
+
+    def test_warmup_sequence_20kv_then_30kv(self, source):
+        """
+        Сценарий воспроизведения ошибки 109:
+        1. Установить 20 кВ / 10 мА (обычно не требует прогрева).
+        2. Включить ВН, убедиться что включилось.
+        3. Выключить ВН.
+        4. Установить 30 кВ / 10 мА (обычно требует прогрева).
+        5. Включить ВН — здесь должен автоматически запуститься прогрев.
+        6. Убедиться что ВН включилось.
+        """
+        # Шаг 1-2: 20 кВ
+        logging.info("=== Step 1: set 20 kV / 10 mA ===")
+        source.set_voltage(20.0)
+        source.set_current(10.0)
+        source.on_high_voltage()
+        assert source.is_on_high_voltage(), "HV should be ON at 20 kV"
+        v = source.get_actual_voltage()
+        logging.info("HV ON at 20 kV, actual voltage=%.3f kV", v)
+
+        # Шаг 3: выключить
+        logging.info("=== Step 2: turn HV OFF ===")
+        source.off_high_voltage()
+        assert not source.is_on_high_voltage(), "HV should be OFF"
+
+        # Шаг 4-5: 30 кВ — здесь может потребоваться прогрев
+        logging.info("=== Step 3: set 30 kV / 10 mA and turn HV ON ===")
+        source.set_voltage(30.0)
+        source.set_current(10.0)
+        source.on_high_voltage()
+        assert source.is_on_high_voltage(), "HV should be ON at 30 kV after warmup"
+        v = source.get_actual_voltage()
+        logging.info("HV ON at 30 kV, actual voltage=%.3f kV", v)

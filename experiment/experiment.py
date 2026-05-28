@@ -174,6 +174,7 @@ class Experiment:
         self.to_be_stopped = False
         self.stop_exception = None
         self.tomograph.source_power_on()
+        self.tomograph.source_wait_for_ready()
         self.tomograph.reset_to_zero_angle()
         self.collect_dark_frames()
         if not self.to_be_stopped:
@@ -377,6 +378,7 @@ class AdvancedExperiment:
             self.status_dict['start_time'] = self._start_time
 
         self.tomograph.source_power_on()
+        self.tomograph.source_wait_for_ready()
         self.tomograph.reset_to_zero_angle()
 
         self._collect_dark_frames()
