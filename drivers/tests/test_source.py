@@ -255,11 +255,13 @@ class TestSourceHighVoltage:
         """Пропустить тест если interlock не позволяет включить ВН."""
         status = source.get_status()
         interlock = status['interlock status']
+        # NOTE: emergency_stop_ok исключён из проверки — с пульта генератор
+        # включается даже при активном сигнале E-STOP (SR:30 bit 2).
         if not all([
             interlock['door 1 ok'],
             interlock['door 2 ok'],
             interlock['extern stop ok'],
-            interlock['emergency stop ok'],
+            # interlock['emergency stop ok'],
         ]):
             pytest.skip(
                 "Interlock open: door1={} door2={} extern_stop={} emergency_stop={}. "
