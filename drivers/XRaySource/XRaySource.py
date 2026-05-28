@@ -186,10 +186,9 @@ class HWSource(object):
                 stopbits=serial.STOPBITS_ONE,
                 timeout=TIMEOUT,
                 rtscts=False,
-                dsrdtr=False,
+                dsrdtr=True,  # DTR=True: требуется ISOVOLT 3003 для активации интерфейса
             )
-            self.serial_port.dtr = False
-            self.serial_port.rts = False
+            sleep(0.5)  # пауза для инициализации устройства
 
         logging.debug('Source.__init__ finished.')
         atexit.register(self.close)
@@ -372,6 +371,8 @@ class HWSource(object):
             int: Числовое значение слова состояния.
         """
         logging.debug('Source.read_status_word(%d) starting...', word_number)
+        if self.mock:
+            return 0
         if word_number not in [1, 6, 12, 30]:
             logging.error("Source.read_status_word(): unknown word number %d", word_number)
 
@@ -409,6 +410,29 @@ class HWSource(object):
                     }
                 }
         """
+        if self.mock:
+            return {
+                'power status': {
+                    'external pc control': True,
+                    'high voltage on': False,
+                    'cooling system ok': True,
+                    'buffer battery ok': True,
+                    'current ma norm': True,
+                    'voltage kv norm': True,
+                },
+                'warming status': {
+                    'in progress': False,
+                    'warming interrupted': False,
+                    'warming from pc': False,
+                    'warming from kb': False,
+                },
+                'interlock status': {
+                    'door 1 ok': True,
+                    'door 2 ok': True,
+                    'extern stop ok': True,
+                    'emergency stop ok': True,
+                },
+            }
         sw_1 = self.read_status_word(1)
         res = {'power status': {
             'external pc control': bool(sw_1 & 128),
@@ -589,11 +613,12 @@ class HWSource(object):
     def get_nominal_power(self):
         """Прочитать установленную мощность (Вт).
 
+        Некоторые генераторы (например, ISOVOLT 3003) не поддерживают
+        команду ``PN``; в этом случае мощность рассчитывается как
+        ``nominal_voltage * nominal_current``.
+
         Returns:
             float: Мощность в Вт.
-
-        Raises:
-            RuntimeError: При ошибке от устройства.
         """
         if self.mock:
             return 800.0
@@ -605,11 +630,16 @@ class HWSource(object):
         self.serial_port.write("PN\n".encode())
         answer = self.get_data_string()
         error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_nominal_power() error: {}".format(error))
-            raise RuntimeError("Source.get_nominal_power() error: {}".format(error))
 
-        self.last_power_nominal = self.get_number(answer) / 1000.0
+        if error is not None or not answer.startswith('*'):
+            # PN не поддерживается — рассчитываем через V*I
+            v = self.get_nominal_voltage()
+            c = self.get_nominal_current()
+            self.last_power_nominal = v * c
+            logging.debug('Source.get_nominal_power(): PN unsupported, calculated %.3f W', self.last_power_nominal)
+        else:
+            self.last_power_nominal = self.get_number(answer) / 1000.0
+
         self.timer_power_nominal = time()
         logging.debug('Source.get_nominal_power() finished.')
         return self.last_power_nominal
@@ -796,6 +826,8 @@ class HWSource(object):
             dict | None: Словарь ``{'code': int, 'message': str}``
             или None если ошибок нет.
         """
+        if self.mock:
+            return None
         self.serial_port.write("SR:12\n".encode())
         answer = self.get_data_string()
         try:
@@ -841,9 +873,26 @@ class HWSource(object):
         Returns:
             str: Строка ответа без завершающих символов.
         """
-        sleep(0.2)
+        if self.mock:
+            return "*0"
+        sleep(0.5)
         line = self.serial_port.read_until(b'\r')
+        logging.debug("Source.get_data_string(): raw=%r", line)
         return line.decode().strip()
+
+    def _write_command(self, command):
+        """Отправить команду на устройство с корректным окончанием строки.
+
+        Сбрасывает входной/выходной буферы перед отправкой.
+        """
+        if self.mock:
+            return
+        self.serial_port.reset_input_buffer()
+        self.serial_port.reset_output_buffer()
+        full = (command + "\r\n").encode()
+        self.serial_port.write(full)
+        self.serial_port.flush()
+        logging.debug("Source._write_command(): sent %r", full)
 
     @staticmethod
     def get_number(line):
