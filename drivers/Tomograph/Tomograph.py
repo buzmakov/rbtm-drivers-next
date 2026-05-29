@@ -42,24 +42,11 @@ class HWTomograph(object):
             source_config["port"],
             mock=source_mock
         )
-        # Устанавливаем безопасный режим по умолчанию: 20 кВ / 10 мА.
-        # Заполняет кэш last_voltage_nominal / last_current_nominal, чтобы
-        # при последующем on_high_voltage() / warmup() напряжение было известно.
-        # Если устройство в состоянии 109 (требует прогрева) — прогрев не запускаем:
-        # это сделает пользователь кнопкой «Включить источник».
-        # Напряжение 20.0 кВ сохраняется в кэш напрямую на случай,
-        # если устройство не отвечает на команды при старте.
+        # Предустанавливаем кэш напряжения/тока, чтобы warmup()/on_high_voltage()
+        # знали целевые значения, но НЕ обращаемся к устройству — при пересоздании
+        # объекта через RedisProxy это вызывало циклическое вкл/выкл ВН.
         self.source.last_voltage_nominal = 20.0
         self.source.last_current_nominal = 10.0
-        try:
-            self.source.set_voltage(20.0)
-            self.source.set_current(10.0)
-            logging.getLogger(__name__).info(
-                "HWTomograph: default source mode set to 20 kV / 10 mA")
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                "HWTomograph: could not set default source mode (device may require warm-up): %s"
-                " — cache pre-set to 20 kV / 10 mA", e)
 
         horizontal_motor_config = get_horizontal_motor_config()
         # steps_on_deg=None: горизонтальный мотор линейный, deg-методы не применяются.

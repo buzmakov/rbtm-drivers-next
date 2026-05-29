@@ -13,9 +13,21 @@ WARMUP_TIMEOUT = 1800   # максимальное время прогрева �
 class HWSource(object):
     """Драйвер рентгеновского источника ISOVOLT 3003 (Seifert/GE).
 
-    Управление через RS-232 (9600 8N1). Протокол ASCII: команда + '\\n',
+    Управление через RS-232 (9600 8N1). Протокол ASCII: команда + '\\r\\n',
     ответ начинается с '*', заканчивается '\\r'. Коды ошибок читаются
     командой SR:12.
+
+    **Документация устройства:** vendor/docs/ISOVOLT_3003_manual_rus.pdf
+
+    **Важные моменты из документации:**
+    - Команда **`CL`** (Clear) — единственная команда для сброса ошибки 119.
+      Не путать с `RE:19` — такой команды не существует в протоколе!
+    - После прогрева (`WU:4,NNN`) устройство выдаёт ошибку 119. Нужно
+      отправить `CL`, затем `HV:1` для включения высокого напряжения.
+    - Если прогрев прерван, даётся 3 попытки (код 116 = неудача).
+    - Статус прогрева: SR:06 биты 1/2/4/8 (вкл с клавиатуры/PC, прерван, в процессе).
+    - Статус ВН: SR:01 бит 6 (1=вкл), бит 4/8 (0=напряжение/ток стабилизированы).
+    - Aварийный стоп: SR:30 бит 4 (1=активен). Это interlock-статус, а не ошибка.
     """
 
     STATUS_STRINGS = {
@@ -405,8 +417,10 @@ class HWSource(object):
                     logging.error("Source.warmup() WU error: {}".format(error))
                     raise RuntimeError("Source.warmup() WU error: {}".format(error))
                 if error_code == 119:
-                    logging.info("Source.warmup(): warm-up already completed (error 119), skipping warmup")
-                    return  # Прогрев уже завершён — выходим без ошибок
+                    logging.info("Source.warmup(): warm-up already completed (error 119), clearing")
+                    self._write_command("CL")
+                    sleep(0.5)
+                    # Не выходим — HV был выключен выше, включится после with
 
                 # HV:1 = программный START прогрева
                 logging.info("Source.warmup(): sending HV:1 to start warmup...")
@@ -478,7 +492,7 @@ class HWSource(object):
                             # Сбрасываем ошибку 119 "Warm-up program completed. ENTER"
                             if err_code == 119:
                                 logging.info("Source.warmup(): clearing error 119 (warm-up completed)")
-                                self._write_command("RE:19")
+                                self._write_command("CL")
                                 sleep(0.5)
                             logging.info("Source.warmup(): warm-up finished.")
                             break
@@ -926,10 +940,10 @@ class HWSource(object):
             return
         logging.info('Source.set_voltage() starting... voltage=%.3f', voltage)
 
-        # Сбрасываем возможное состояние 109 перед попыткой
+        # Сбрасываем возможное состояние 109 / 119 перед попыткой
         try:
             with self._port_lock:
-                self._write_command("RE:19")
+                self._write_command("CL")
                 sleep(0.3)
         except:
             pass
@@ -958,7 +972,7 @@ class HWSource(object):
             # Сбрасываем возможное состояние 109 перед повторной попыткой
             try:
                 with self._port_lock:
-                    self._write_command("RE:19")
+                    self._write_command("CL")
                     sleep(0.5)
             except:
                 pass
@@ -970,12 +984,51 @@ class HWSource(object):
                 logging.info('Source.set_voltage: warm-up required (voltage=%.3f kV)', voltage)
                 # Запускаем прогрев до целевого напряжения и ждём завершения
                 self.warmup(voltage=voltage)
+                # После прогрева нужно повторно отправить SV, так как устройство вернулось в режим ожидания
+                try:
+                    with self._port_lock:
+                        self._write_command(command)
+                        error_answer = self.get_data_string()
+                        self._write_command("SR:12")
+                        err_answer = self.get_data_string()
+                        try:
+                            error_code = int(err_answer[1:])
+                        except ValueError:
+                            error_code = 0
+                        if error_code != 0:
+                            error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))}
+                        else:
+                            error = None
+                except RuntimeError as e:
+                    logging.warning("Source.set_voltage(): timeout on retry SV after warmup: %s", e)
+                    error = {'code': 109, 'message': 'Device unresponsive after warmup'}
             elif error['code'] == 119:
-                logging.info('Source.set_voltage(): warm-up already completed (error 119), continuing')
-                # Прогрев уже завершён — продолжаем как обычно
+                logging.info('Source.set_voltage(): warm-up already completed (error 119), clearing and retrying SV')
+                with self._port_lock:
+                    self._write_command("CL")
+                    sleep(0.3)
+                    self._write_command(command)
+                    self.get_data_string()
+                    self._write_command("SR:12")
+                    err_answer = self.get_data_string()
+                    try:
+                        error_code = int(err_answer[1:])
+                    except ValueError:
+                        error_code = 0
+                    if error_code != 0:
+                        error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))}
+                    else:
+                        error = None
             else:
                 logging.error("Source.set_voltage() error: {}".format(error))
                 raise RuntimeError("Source.set_voltage() error: {}".format(error))
+
+        # Обновляем кэш номинального напряжения
+        self.last_voltage_nominal = voltage
+        self.timer_voltage_nominal = time()
+        # Сбрасываем кэш фактического напряжения, чтобы следующее чтение было актуальным
+        self.last_voltage_actual = None
+        self.timer_voltage_actual = None
 
         self.wait_for_voltage()
         logging.info('Source.set_voltage() finished.')
