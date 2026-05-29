@@ -173,15 +173,11 @@ class HWSource(object):
         self.mock = mock
         self.tty_name = tty_name
         self.timer_voltage_nominal = None
-        self.timer_voltage_actual = None
         self.timer_current_nominal = None
-        self.timer_current_actual = None
         self.timer_power_nominal = None
         self.timer_power_actual = None
         self.last_voltage_nominal = None
-        self.last_voltage_actual = None
         self.last_current_nominal = None
-        self.last_current_actual = None
         self.last_power_nominal = None
         self.last_power_actual = None
 
@@ -749,9 +745,9 @@ class HWSource(object):
     def get_actual_voltage(self):
         """Прочитать фактическое напряжение (кВ).
 
-        При ошибке от устройства возвращает последнее кешированное значение
-        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
-        Во время прогрева (_warming_up.is_set()) сразу возвращает кэш,
+        Всегда читает свежее значение с устройства (кэширование убрано,
+        чтобы избежать показа устаревших значений после изменения напряжения).
+        Во время прогрева (_warming_up.is_set()) возвращает 0.0,
         чтобы не вклиниваться в монопольный доступ warmup() к порту.
 
         Returns:
@@ -761,10 +757,7 @@ class HWSource(object):
             return 40.0
         # Если идёт прогрев — не лезем в порт
         if self._warming_up.is_set():
-            return self.last_voltage_actual if self.last_voltage_actual is not None else 0.0
-        cached = self._check_cache(self.timer_voltage_actual, self.last_voltage_actual)
-        if cached is not None:
-            return cached
+            return 0.0
 
         logging.debug('Source.get_actual_voltage() starting...')
         try:
@@ -774,17 +767,16 @@ class HWSource(object):
             error = self.get_error()
             if error is not None:
                 logging.warning(
-                    "Source.get_actual_voltage() device error: %s (returning last cached or 0.0)",
+                    "Source.get_actual_voltage() device error: %s (returning 0.0)",
                     error)
-                return self.last_voltage_actual if self.last_voltage_actual is not None else 0.0
+                return 0.0
 
-            self.last_voltage_actual = self.get_number(answer) / 1000.0
-            self.timer_voltage_actual = time()
+            voltage = self.get_number(answer) / 1000.0
             logging.debug('Source.get_actual_voltage() finished.')
-            return self.last_voltage_actual
+            return voltage
         except Exception as e:
             logging.warning("Source.get_actual_voltage() exception: %s (returning 0.0)", e)
-            return self.last_voltage_actual if self.last_voltage_actual is not None else 0.0
+            return 0.0
 
     def get_nominal_current(self):
         """Прочитать установленный ток (мА).
@@ -818,9 +810,9 @@ class HWSource(object):
     def get_actual_current(self):
         """Прочитать фактический ток (мА).
 
-        При ошибке от устройства возвращает последнее кешированное значение
-        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
-        Во время прогрева (_warming_up.is_set()) сразу возвращает кэш.
+        Всегда читает свежее значение с устройства (кэширование убрано,
+        чтобы избежать показа устаревших значений).
+        Во время прогрева (_warming_up.is_set()) возвращает 0.0.
 
         Returns:
             float: Ток в мА (0.0 если устройство не отвечает корректно).
@@ -828,10 +820,7 @@ class HWSource(object):
         if self.mock:
             return 20.0
         if self._warming_up.is_set():
-            return self.last_current_actual if self.last_current_actual is not None else 0.0
-        cached = self._check_cache(self.timer_current_actual, self.last_current_actual)
-        if cached is not None:
-            return cached
+            return 0.0
 
         logging.debug('Source.get_actual_current() starting...')
         try:
@@ -841,17 +830,16 @@ class HWSource(object):
             error = self.get_error()
             if error is not None:
                 logging.warning(
-                    "Source.get_actual_current() device error: %s (returning last cached or 0.0)",
+                    "Source.get_actual_current() device error: %s (returning 0.0)",
                     error)
-                return self.last_current_actual if self.last_current_actual is not None else 0.0
+                return 0.0
 
-            self.last_current_actual = self.get_number(answer) / 1000.0
-            self.timer_current_actual = time()
+            current = self.get_number(answer) / 1000.0
             logging.debug('Source.get_actual_current() finished.')
-            return self.last_current_actual
+            return current
         except Exception as e:
             logging.warning("Source.get_actual_current() exception: %s (returning 0.0)", e)
-            return self.last_current_actual if self.last_current_actual is not None else 0.0
+            return 0.0
 
     def get_nominal_power(self):
         """Прочитать установленную мощность (Вт).
@@ -1026,9 +1014,6 @@ class HWSource(object):
         # Обновляем кэш номинального напряжения
         self.last_voltage_nominal = voltage
         self.timer_voltage_nominal = time()
-        # Сбрасываем кэш фактического напряжения, чтобы следующее чтение было актуальным
-        self.last_voltage_actual = None
-        self.timer_voltage_actual = None
 
         self.wait_for_voltage()
         logging.info('Source.set_voltage() finished.')
@@ -1172,27 +1157,6 @@ class HWSource(object):
         except Exception as e:
             logging.warning("Source.get_error(): communication failed: %s (returning None)", e)
             return None
-
-    def reset_error(self, code):
-        """Сбросить ошибку (команда RE:nn).
-
-        Args:
-            code (int): Код ошибки для сброса.
-
-        Raises:
-            RuntimeError: Если после сброса ошибка не исчезла.
-        """
-        if self.mock:
-            return
-        logging.debug('Source.reset_error(%d) starting...', code)
-        with self._port_lock:
-            self._write_command("RE:{}".format(str(code).zfill(2)))
-        sleep(0.2)
-        error = self.get_error()
-        if error is not None and error['code'] == code:
-            logging.error("Source.reset_error(): error %d persists after reset", code)
-            raise RuntimeError("Source.reset_error(): error {} persists after reset".format(code))
-        logging.debug('Source.reset_error(%d) finished.', code)
 
     # ------------------------------------------------------------------
     # Вспомогательные методы
