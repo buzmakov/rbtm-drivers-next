@@ -504,8 +504,16 @@ class HWSource(object):
                 logging.error("Source.warmup() post-warmup HV error: {}".format(error))
                 raise RuntimeError("Source.warmup() post-warmup HV error: {}".format(error))
             logging.info("Source.warmup(): HV ON after warm-up confirmed")
+            
+            # Ждём стабилизации напряжения и тока — аналогично on_high_voltage()
+            # Выходим из with _port_lock перед wait_*, чтобы UI-опросы не блокировались
         finally:
             self._warming_up.clear()
+        
+        self.wait_for_high_voltage()
+        self.wait_for_current()
+        self.wait_for_voltage()
+        logging.info("Source.warmup(): warm-up sequence fully completed")
         logging.debug('Source.warmup() finished.')
 
     # ------------------------------------------------------------------

@@ -247,8 +247,13 @@ total_frames = (
 | GET | `/tomograph/<n>/motor/move-back` | Вернуть образец в пучок |
 | GET | `/tomograph/<n>/shutter/open/0` | Открыть затвор |
 | GET | `/tomograph/<n>/shutter/close/0` | Закрыть затвор |
-| GET | `/tomograph/<n>/source/power-on` | Включить рентген |
+| GET | `/tomograph/<n>/source/power-on` | Включить рентген (async, запускает прогрев при необходимости) |
 | GET | `/tomograph/<n>/source/power-off` | Выключить рентген |
+| GET | `/tomograph/<n>/source/state` | Состояние источника: `on`, `busy`, `mocked`, `warming_status` |
+| POST | `/tomograph/<n>/source/set-voltage` | Установить напряжение (кВ) |
+| POST | `/tomograph/<n>/source/set-current` | Установить ток (мА) |
+| GET | `/tomograph/<n>/source/get-voltage` | Текущее напряжение (кВ) |
+| GET | `/tomograph/<n>/source/get-current` | Текущий ток (мА) |
 
 ### Ответ `/experiment/status`
 ```json
