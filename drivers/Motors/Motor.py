@@ -16,43 +16,29 @@ except OSError as err:
     exit()
 
 
-class HWMotor(object):
-    # TODO: архитектурная проблема — HWMotor используется и для вращательных (угловых),
-    #       и для линейных (горизонтальных) моторов, что приводит к путанице в параметрах.
-    #       steps_on_deg имеет смысл только для вращательных моторов.
-    #       Требуется рефакторинг на отдельные классы HWRotaryMotor / HWLinearMotor.
+class BaseMotor(object):
+    """
+    Базовый класс для шаговых двигателей XIMC (Standa).
 
-    def __init__(self, device_name, speed, acceleration, steps_on_deg=None):
+    Инкапсулирует открытие/закрытие устройства, применение начальных настроек
+    контроллера и низкоуровневые команды позиционирования (в шагах).
+
+    Не создавайте напрямую — используйте :class:`HWRotaryMotor` или :class:`HWLinearMotor`.
+    """
+
+    def __init__(self, device_name, speed, acceleration):
         """
         Инициализация и открытие устройства мотора.
 
         :param device_name: str | bytes — имя устройства (порт), например 'xi-com:///dev/ximc/0000037A'.
         :param speed: int — скорость движения в шагах/с (записывается в контроллер при открытии).
         :param acceleration: int — ускорение/торможение в шагах/с² (записывается в контроллер при открытии).
-        :param steps_on_deg: float | None — число шагов на один градус поворота.
-                             Только для вращательных моторов.
-                             None — для линейных моторов; вызов deg-методов при None вызовет RuntimeError.
         """
         self.device_name = device_name
-        # steps_on_deg имеет смысл только для вращательных моторов; для линейных — None
-        self.steps_on_deg = float(steps_on_deg) if steps_on_deg is not None else None
         self.speed = int(speed)
         self.acceleration = int(acceleration)
         self.open()
         atexit.register(self.close)
-
-    # ─── Internal helpers ────────────────────────────────────────────────────────
-
-    def _check_rotary(self, method_name):
-        """
-        Проверить, что мотор вращательный (steps_on_deg не None).
-        :raises RuntimeError: если мотор линейный и метод не применим.
-        """
-        if self.steps_on_deg is None:
-            raise RuntimeError(
-                "Motor.{}() is only valid for rotary motors (steps_on_deg is None). "
-                "See TODO in HWMotor class about HWRotaryMotor / HWLinearMotor refactoring.".format(method_name)
-            )
 
     # ─── Device lifecycle ────────────────────────────────────────────────────────
 
@@ -77,7 +63,7 @@ class HWMotor(object):
         device_id = lib.open_device(open_name)
         self.device_id = device_id
         logging.info('Motor device_id: {}'.format(self.device_id))
-        if device_id == -1:  # lib.device_undefined: #TODO: checkit
+        if device_id == -1:
             logging.error("Motor.open(): open failed")
             raise RuntimeError("Motor.open(): open failed")
 
@@ -241,20 +227,6 @@ class HWMotor(object):
         logging.debug("Motor.get_position() finished.")
         return res
 
-    def get_position_deg(self):
-        """
-        Получить текущую абсолютную позицию вращательного мотора в градусах.
-        Только для вращательных моторов (steps_on_deg is not None).
-
-        :return: float — угол в градусах.
-        :raises RuntimeError: если вызван для линейного мотора (steps_on_deg is None).
-        """
-        logging.debug("Motor.get_position_deg() starting...")
-        self._check_rotary("get_position_deg")
-        res = self.get_position() / self.steps_on_deg
-        logging.debug("Motor.get_position_deg() finished.")
-        return res
-
     # ─── Movement ────────────────────────────────────────────────────────────────
 
     def move_to_position(self, position, uposition=0, blocking=True):
@@ -278,25 +250,6 @@ class HWMotor(object):
             lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_to_position() finished.")
 
-    def move_to_position_deg(self, position, blocking=True):
-        """
-        Переместить вращательный мотор на абсолютную позицию в градусах.
-        Только для вращательных моторов (steps_on_deg is not None).
-
-        Дробная часть угла корректно конвертируется в микрошаги uPosition ∈ [0, 255].
-
-        :param position: float — угловая позиция в градусах.
-        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
-        :raises RuntimeError: если вызван для линейного мотора или команда отклонена.
-        """
-        logging.debug("Motor.move_to_position_grad() starting...")
-        self._check_rotary("move_to_position_deg")
-        total = position * self.steps_on_deg
-        steps = int(np.floor(total))
-        usteps = int((total - steps) * 256)  # [0, 255]
-        self.move_to_position(steps, usteps, blocking=blocking)
-        logging.debug("Motor.move_to_position_grad() finished...")
-
     def move_by_delta(self, step, ustep=0, blocking=True):
         """
         Переместить мотор на относительное смещение в шагах.
@@ -315,23 +268,6 @@ class HWMotor(object):
         if blocking:
             lib.command_wait_for_stop(self.device_id, 10)
         logging.debug("Motor.move_by_delta() finished")
-
-    def move_by_delta_deg(self, position, blocking=True):
-        """
-        Повернуть вращательный мотор на относительное смещение в градусах.
-        Только для вращательных моторов (steps_on_deg is not None).
-
-        :param position: float — смещение в градусах (может быть отрицательным).
-        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
-        :raises RuntimeError: если вызван для линейного мотора или команда отклонена.
-        """
-        logging.debug("Motor.move_by_delta_grad() starting...")
-        self._check_rotary("move_by_delta_deg")
-        total = position * self.steps_on_deg
-        steps = int(np.floor(total))
-        usteps = int((total - steps) * 256)  # [0, 255]
-        self.move_by_delta(steps, usteps, blocking=blocking)
-        logging.debug("Motor.move_by_delta_grad() finished...")
 
     # ─── Calibration / configuration ─────────────────────────────────────────────
 
@@ -370,18 +306,93 @@ class HWMotor(object):
             logging.error("Motor.set_microstep_mode_256() error: {}".format(result))
             raise RuntimeError("Motor.set_microstep_mode_256() error: {}".format(result))
 
+
+class HWRotaryMotor(BaseMotor):
+    """
+    Вращательный (угловой) мотор.
+
+    Расширяет :class:`BaseMotor` методами работы с градусами.
+    Используется для поворота образца при томографической съёмке.
+
+    Пример::
+
+        motor = HWRotaryMotor('xi-com:///dev/ximc/0000037A',
+                              speed=500, acceleration=500,
+                              steps_on_deg=90.0)   # 32400 шагов / 360° = 90 шагов/°
+        motor.move_to_position_deg(90.0)
+        angle = motor.get_position_deg()
+    """
+
+    def __init__(self, device_name, speed, acceleration, steps_on_deg):
+        """
+        :param device_name: str | bytes — имя устройства (порт).
+        :param speed: int — скорость в шагах/с.
+        :param acceleration: int — ускорение в шагах/с².
+        :param steps_on_deg: float — число шагов на один градус поворота.
+                             Например: 32400 шагов/об / 360° = 90 шагов/°.
+        """
+        self.steps_on_deg = float(steps_on_deg)
+        super().__init__(device_name, speed, acceleration)
+
+    # ─── Position ────────────────────────────────────────────────────────────────
+
+    def get_position_deg(self):
+        """
+        Получить текущую абсолютную позицию мотора в градусах.
+
+        :return: float — угол в градусах.
+        :raises RuntimeError: если запрос к контроллеру завершился с ошибкой.
+        """
+        logging.debug("HWRotaryMotor.get_position_deg() starting...")
+        res = self.get_position() / self.steps_on_deg
+        logging.debug("HWRotaryMotor.get_position_deg() finished.")
+        return res
+
+    # ─── Movement ────────────────────────────────────────────────────────────────
+
+    def move_to_position_deg(self, position, blocking=True):
+        """
+        Переместить мотор на абсолютную позицию в градусах.
+
+        Дробная часть угла корректно конвертируется в микрошаги uPosition ∈ [0, 255].
+
+        :param position: float — угловая позиция в градусах.
+        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :raises RuntimeError: если команда отклонена контроллером.
+        """
+        logging.debug("HWRotaryMotor.move_to_position_deg() starting...")
+        total = position * self.steps_on_deg
+        steps = int(np.floor(total))
+        usteps = int((total - steps) * 256)  # [0, 255]
+        self.move_to_position(steps, usteps, blocking=blocking)
+        logging.debug("HWRotaryMotor.move_to_position_deg() finished.")
+
+    def move_by_delta_deg(self, position, blocking=True):
+        """
+        Повернуть мотор на относительное смещение в градусах.
+
+        :param position: float — смещение в градусах (может быть отрицательным).
+        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :raises RuntimeError: если команда отклонена контроллером.
+        """
+        logging.debug("HWRotaryMotor.move_by_delta_deg() starting...")
+        total = position * self.steps_on_deg
+        steps = int(np.floor(total))
+        usteps = int((total - steps) * 256)  # [0, 255]
+        self.move_by_delta(steps, usteps, blocking=blocking)
+        logging.debug("HWRotaryMotor.move_by_delta_deg() finished.")
+
     # ─── State ───────────────────────────────────────────────────────────────────
 
     def get_state(self, options=None):
         """
-        Получить состояние мотора по запрошенным параметрам.
+        Получить состояние вращательного мотора по запрошенным параметрам.
 
         :param options: list[str] | str | None — список запрашиваемых параметров.
                         Допустимые значения: 'device_name', 'steps_on_deg', 'speed',
                         'acceleration', 'position'.
                         None — вернуть все параметры (по умолчанию).
-                        Для линейных моторов (steps_on_deg is None) 'position'
-                        возвращает значение в шагах, а не в градусах.
+                        'position' возвращается в градусах.
         :return: dict {option: value, ...}. Неизвестные опции возвращают {'error': ...}.
         """
         if options is None:
@@ -389,7 +400,7 @@ class HWMotor(object):
                        'speed', 'acceleration', 'position']
         res = {}
         if not isinstance(options, (list, tuple)):
-            options = [options, ]
+            options = [options]
 
         for option in options:
             if option == 'device_name':
@@ -401,15 +412,159 @@ class HWMotor(object):
             elif option == 'acceleration':
                 s = self.acceleration
             elif option == 'position':
-                # Для вращательного мотора — в градусах, для линейного — в шагах
-                s = self.get_position_deg() if self.steps_on_deg is not None else self.get_position()
+                s = self.get_position_deg()
             else:
                 s = {'error': 'Unsupported option {}'.format(option)}
             res[option] = s
         return res
 
 
-# TODO: add get/set status
+class HWLinearMotor(BaseMotor):
+    """
+    Линейный мотор (горизонтальный).
+
+    Расширяет :class:`BaseMotor` методами работы с миллиметрами.
+    Используется для горизонтального перемещения образца (вынос из рентгеновского пучка).
+
+    Пример::
+
+        motor = HWLinearMotor('xi-com:///dev/ximc/00000271',
+                              speed=200, acceleration=200,
+                              steps_per_mm=199.46,    # 1 шаг = 5.0136 мкм
+                              move_outside_mm=-21.06) # позиция парковки
+        motor.move_outside()                 # вывести объект из пучка
+        motor.move_to_position(0)            # вернуть в пучок
+        pos_mm = motor.get_position_mm()     # текущая позиция в мм
+    """
+
+    def __init__(self, device_name, speed, acceleration, steps_per_mm, move_outside_mm=0.0):
+        """
+        :param device_name: str | bytes — имя устройства (порт).
+        :param speed: int — скорость в шагах/с.
+        :param acceleration: int — ускорение в шагах/с².
+        :param steps_per_mm: float — число шагов на миллиметр перемещения.
+                             Например: 1 шаг = 5.0136 мкм → steps_per_mm = 199.46.
+        :param move_outside_mm: float — расстояние (мм) для вывода объекта из рентгеновского пучка
+                                (позиция парковки). Обычно отрицательное значение.
+        """
+        self.steps_per_mm = float(steps_per_mm)
+        self.move_outside_mm = float(move_outside_mm)
+        super().__init__(device_name, speed, acceleration)
+
+    # ─── Internal helpers ────────────────────────────────────────────────────────
+
+    def _mm_to_steps(self, mm):
+        """
+        Перевести миллиметры в шаги и микрошаги.
+
+        :param mm: float — расстояние в миллиметрах.
+        :return: tuple (steps: int, usteps: int) — целая часть в шагах и дробная в микрошагах [0, 255].
+        """
+        total = mm * self.steps_per_mm
+        steps = int(np.floor(total))
+        usteps = int((total - steps) * 256)  # [0, 255]
+        return steps, usteps
+
+    # ─── Position ────────────────────────────────────────────────────────────────
+
+    def get_position_mm(self):
+        """
+        Получить текущую абсолютную позицию мотора в миллиметрах.
+
+        :return: float — позиция в мм.
+        :raises RuntimeError: если запрос к контроллеру завершился с ошибкой.
+        """
+        logging.debug("HWLinearMotor.get_position_mm() starting...")
+        res = self.get_position() / self.steps_per_mm
+        logging.debug("HWLinearMotor.get_position_mm() finished.")
+        return res
+
+    # ─── Movement ────────────────────────────────────────────────────────────────
+
+    def move_to_position_mm(self, mm, blocking=True):
+        """
+        Переместить мотор на абсолютную позицию в миллиметрах.
+
+        :param mm: float — целевая позиция в мм.
+        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :raises RuntimeError: если команда отклонена контроллером.
+        """
+        logging.debug("HWLinearMotor.move_to_position_mm() starting...")
+        steps, usteps = self._mm_to_steps(mm)
+        self.move_to_position(steps, usteps, blocking=blocking)
+        logging.debug("HWLinearMotor.move_to_position_mm() finished.")
+
+    def move_by_delta_mm(self, mm, blocking=True):
+        """
+        Переместить мотор на относительное смещение в миллиметрах.
+
+        :param mm: float — смещение в мм (может быть отрицательным).
+        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :raises RuntimeError: если команда отклонена контроллером.
+        """
+        logging.debug("HWLinearMotor.move_by_delta_mm() starting...")
+        steps, usteps = self._mm_to_steps(mm)
+        self.move_by_delta(steps, usteps, blocking=blocking)
+        logging.debug("HWLinearMotor.move_by_delta_mm() finished.")
+
+    def move_outside(self, blocking=True):
+        """
+        Переместить мотор в позицию парковки объекта (вынос из рентгеновского пучка).
+
+        Целевая позиция задаётся параметром move_outside_mm при создании объекта
+        и хранится в self.move_outside_mm.
+
+        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :raises RuntimeError: если команда отклонена контроллером.
+        """
+        logging.debug("HWLinearMotor.move_outside() starting...")
+        self.move_to_position_mm(self.move_outside_mm, blocking=blocking)
+        logging.debug("HWLinearMotor.move_outside() finished.")
+
+    # ─── State ───────────────────────────────────────────────────────────────────
+
+    def get_state(self, options=None):
+        """
+        Получить состояние линейного мотора по запрошенным параметрам.
+
+        :param options: list[str] | str | None — список запрашиваемых параметров.
+                        Допустимые значения: 'device_name', 'steps_per_mm', 'move_outside_mm',
+                        'speed', 'acceleration', 'position'.
+                        None — вернуть все параметры (по умолчанию).
+                        'position' возвращается в миллиметрах.
+        :return: dict {option: value, ...}. Неизвестные опции возвращают {'error': ...}.
+        """
+        if options is None:
+            options = ['device_name', 'steps_per_mm', 'move_outside_mm',
+                       'speed', 'acceleration', 'position']
+        res = {}
+        if not isinstance(options, (list, tuple)):
+            options = [options]
+
+        for option in options:
+            if option == 'device_name':
+                s = self.device_name
+            elif option == 'steps_per_mm':
+                s = self.steps_per_mm
+            elif option == 'move_outside_mm':
+                s = self.move_outside_mm
+            elif option == 'speed':
+                s = self.speed
+            elif option == 'acceleration':
+                s = self.acceleration
+            elif option == 'position':
+                s = self.get_position_mm()
+            else:
+                s = {'error': 'Unsupported option {}'.format(option)}
+            res[option] = s
+        return res
+
+
+# ─── Backward compatibility alias ────────────────────────────────────────────
+# Старый код импортирует HWMotor — он продолжает работать как HWRotaryMotor.
+# Новый код должен использовать HWRotaryMotor или HWLinearMotor явно.
+HWMotor = HWRotaryMotor
+
 
 def print_test_info():
     print("Library loaded")

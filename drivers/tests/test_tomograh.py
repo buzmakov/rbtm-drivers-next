@@ -13,10 +13,10 @@ _EXPECTED_DEVICE_KEYS = {
                         'actual_current', 'nominal_current',
                         'actual_power', 'nominal_power',
                         'status', 'last_error'),
-    'horizontal_motor': ('device_name', 'steps_on_deg',
+    'horizontal_motor': ('device_name', 'steps_per_mm', 'move_outside_mm',
                          'speed', 'acceleration', 'position'),
-    'angle_motor':     ('device_name', 'steps_on_deg',
-                        'speed', 'acceleration', 'position'),
+    'angle_motor':      ('device_name', 'steps_on_deg',
+                         'speed', 'acceleration', 'position'),
 }
 
 

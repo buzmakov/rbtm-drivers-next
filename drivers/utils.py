@@ -41,25 +41,27 @@ def get_horizontal_motor_config():
     """
     Прочитать конфигурацию горизонтального (линейного) мотора из devices.cfg.
 
-    Горизонтальный мотор — линейный. Параметр 'move_object_outside' задаёт позицию
-    в шагах, на которую нужно сместить объект, чтобы вывести его из рентгеновского пучка.
-    steps_on_deg для этого мотора не применяется (передаётся None в HWMotor).
+    Горизонтальный мотор — линейный (:class:`HWLinearMotor`).
 
-    TODO: архитектурная проблема — горизонтальный мотор линейный, но использует тот же
-          класс HWMotor, что и вращательный угловой мотор. Требуется рефакторинг на
-          отдельные классы HWRotaryMotor / HWLinearMotor.
+    Returns:
+        dict с ключами:
+            - 'port': str — имя устройства (порт).
+            - 'speed': str — скорость в шагах/с.
+            - 'acceleration': str — ускорение в шагах/с².
+            - 'steps_per_mm': float — число шагов на миллиметр (1 шаг = 5.0136 мкм → 199.46 шагов/мм).
+            - 'move_outside_mm': float — позиция парковки объекта в мм (обычно отрицательная).
     """
     port = get_info_from_config("horizontal motor", "port")
-    move_object_outside = int(get_info_from_config("horizontal motor", "move_object_outside"))
     speed = get_info_from_config("horizontal motor", "speed")
     acceleration = get_info_from_config("horizontal motor", "acceleration")
+    steps_per_mm = float(get_info_from_config("horizontal motor", "steps_per_mm"))
+    move_outside_mm = float(get_info_from_config("horizontal motor", "move_object_outside_mm"))
     return {
         'port': port,
-        'move_object_outside': move_object_outside,
         'speed': speed,
         'acceleration': acceleration,
-        # steps_on_deg не применяется для линейного мотора
-        'step_360': None,
+        'steps_per_mm': steps_per_mm,
+        'move_outside_mm': move_outside_mm,
     }
 
 

@@ -6,7 +6,6 @@ from .experiment import ModExpError, Experiment, AdvancedExperiment, create_even
 from .constants import SUCCESSFUL_STOP_MSG
 # from drivers.Tomograph.Tomograph import HWTomograph
 from .redis_proxy import RedisProxy
-from drivers.utils import get_horizontal_motor_config
 
 from autologging import traced
 from . import tomo_logger
@@ -34,11 +33,6 @@ class Tomograph:
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
-
-        # Позиция парковки горизонтального мотора читается локально из конфига,
-        # чтобы избежать передачи через RedisProxy (LazyProxy не сериализуется в int).
-        horizontal_cfg = get_horizontal_motor_config()
-        self._move_object_outside = horizontal_cfg['move_object_outside']
 
     # def __del__(self):
     #     del self.hwtomo
@@ -275,11 +269,10 @@ class Tomograph:
         """
         Переместить горизонтальный мотор в позицию парковки объекта
         (вывод образца из рентгеновского пучка).
-        Целевая позиция берётся из self._move_object_outside, которое читается
-        локально из конфига в __init__ — минуя RedisProxy (LazyProxy не сериализуется).
+        Целевая позиция хранится в HWLinearMotor.move_outside_mm и задаётся
+        через конфиг при инициализации томографа.
         """
-        # self._move_object_outside — обычный int, прочитанный в __init__ из конфига
-        self.hwtomo.horizontal_motor.move_to_position(self._move_object_outside)
+        self.hwtomo.horizontal_motor.move_outside()
         self.object_present = False
 
     def move_back(self):

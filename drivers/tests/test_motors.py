@@ -1,16 +1,16 @@
 # pytest --log-cli-level=INFO -s -v test_motors.py
 import logging
 import numpy as np
-from ..Motors.Motor import HWMotor, print_test_info
+from ..Motors.Motor import HWRotaryMotor, HWLinearMotor, print_test_info
 from ..utils import get_angle_motor_config, get_horizontal_motor_config
 
 # Допустимая погрешность возврата в исходную позицию
-ANGLE_TOLERANCE_DEG = 0.1   # градусы
-LINEAR_TOLERANCE_STEPS = 5  # шаги
+ANGLE_TOLERANCE_DEG = 0.1    # градусы
+LINEAR_TOLERANCE_MM = 0.05   # миллиметры (~10 шагов при steps_per_mm=199.46)
 
 
 def test_angle_motor():
-    """Тест углового (вращательного) мотора.
+    """Тест углового (вращательного) мотора HWRotaryMotor.
 
     Проверяет:
     - Устройство открывается и читает служебную информацию.
@@ -21,7 +21,8 @@ def test_angle_motor():
     config = get_angle_motor_config()
     logging.info("Angle motor config: %s", config)
 
-    motor = HWMotor(config['port'], config['speed'], config['acceleration'], config['step_360'])
+    motor = HWRotaryMotor(config['port'], config['speed'], config['acceleration'],
+                          steps_on_deg=config['step_360'])
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
@@ -53,21 +54,22 @@ def test_angle_motor():
 
 
 def test_horizontal_motor():
-    """Тест горизонтального (линейного) мотора.
-
-    Линейный мотор: deg-методы не используются, позиция в шагах.
+    """Тест горизонтального (линейного) мотора HWLinearMotor.
 
     Проверяет:
     - Устройство открывается и читает служебную информацию.
-    - Текущая позиция читается в шагах.
-    - Смещение +100 шагов выполняется точно.
-    - Возврат на -100 шагов выполняется точно.
+    - Текущая позиция читается в миллиметрах.
+    - Смещение +0.5 мм выполняется точно.
+    - Возврат на -0.5 мм выполняется точно.
+    - move_outside() перемещает в позицию парковки без ошибок.
+    - Возврат в нулевую позицию (move_to_position(0)) выполняется без ошибок.
     """
     config = get_horizontal_motor_config()
     logging.info("Horizontal motor config: %s", config)
 
-    # steps_on_deg=None — линейный мотор, deg-методы не применяются
-    motor = HWMotor(config['port'], config['speed'], config['acceleration'], steps_on_deg=None)
+    motor = HWLinearMotor(config['port'], config['speed'], config['acceleration'],
+                          steps_per_mm=config['steps_per_mm'],
+                          move_outside_mm=config['move_outside_mm'])
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
@@ -79,19 +81,37 @@ def test_horizontal_motor():
     power_info = motor.get_power_info()
     logging.info("Motor power info: %s", power_info)
 
-    pos_0 = motor.get_position()
-    logging.info("Initial position: %.2f steps", pos_0)
+    pos_0_mm = motor.get_position_mm()
+    logging.info("Initial position: %.4f mm", pos_0_mm)
 
-    motor.move_by_delta(100)
-    pos_1 = motor.get_position()
-    logging.info("After +100 steps: %.2f (expected %.2f)", pos_1, pos_0 + 100)
-    assert abs(pos_1 - (pos_0 + 100)) < LINEAR_TOLERANCE_STEPS, \
-        "Позиция после движения {:.2f} не совпадает с ожидаемой {:.2f} (допуск {})".format(
-            pos_1, pos_0 + 100, LINEAR_TOLERANCE_STEPS)
+    delta_mm = 0.5
+    motor.move_by_delta_mm(delta_mm)
+    pos_1_mm = motor.get_position_mm()
+    logging.info("After +%.2f mm: %.4f mm (expected %.4f mm)", delta_mm, pos_1_mm, pos_0_mm + delta_mm)
+    assert abs(pos_1_mm - (pos_0_mm + delta_mm)) < LINEAR_TOLERANCE_MM, \
+        "Позиция после движения {:.4f} мм не совпадает с ожидаемой {:.4f} мм (допуск {})".format(
+            pos_1_mm, pos_0_mm + delta_mm, LINEAR_TOLERANCE_MM)
 
-    motor.move_by_delta(-100)
-    pos_2 = motor.get_position()
-    logging.info("After return: %.2f (expected %.2f)", pos_2, pos_0)
-    assert abs(pos_2 - pos_0) < LINEAR_TOLERANCE_STEPS, \
-        "Позиция после возврата {:.2f} не совпадает с исходной {:.2f} (допуск {})".format(
-            pos_2, pos_0, LINEAR_TOLERANCE_STEPS)
+    motor.move_by_delta_mm(-delta_mm)
+    pos_2_mm = motor.get_position_mm()
+    logging.info("After return: %.4f mm (expected %.4f mm)", pos_2_mm, pos_0_mm)
+    assert abs(pos_2_mm - pos_0_mm) < LINEAR_TOLERANCE_MM, \
+        "Позиция после возврата {:.4f} мм не совпадает с исходной {:.4f} мм (допуск {})".format(
+            pos_2_mm, pos_0_mm, LINEAR_TOLERANCE_MM)
+
+    # Проверяем парковку: move_outside() перемещает в позицию конфига
+    logging.info("Testing move_outside() → %.4f mm", motor.move_outside_mm)
+    motor.move_outside()
+    pos_out_mm = motor.get_position_mm()
+    logging.info("After move_outside(): %.4f mm (expected %.4f mm)", pos_out_mm, motor.move_outside_mm)
+    assert abs(pos_out_mm - motor.move_outside_mm) < LINEAR_TOLERANCE_MM, \
+        "Позиция после move_outside() {:.4f} мм не совпадает с {:.4f} мм (допуск {})".format(
+            pos_out_mm, motor.move_outside_mm, LINEAR_TOLERANCE_MM)
+
+    # Возврат в рабочую позицию (нуль)
+    motor.move_to_position(0)
+    pos_home_mm = motor.get_position_mm()
+    logging.info("After return to 0: %.4f mm", pos_home_mm)
+    assert abs(pos_home_mm) < LINEAR_TOLERANCE_MM, \
+        "Позиция после возврата в 0 {:.4f} мм не совпадает с нулём (допуск {})".format(
+            pos_home_mm, LINEAR_TOLERANCE_MM)

@@ -6,19 +6,27 @@
 
 | Файл | Описание |
 |---|---|
-| [`Motor.py`](Motor.py) | Класс `HWMotor` — основной драйвер мотора |
+| [`Motor.py`](Motor.py) | Классы `BaseMotor`, `HWRotaryMotor`, `HWLinearMotor` |
 | [`pyximc.py`](pyximc.py) | Python-биндинги библиотеки libximc (Standa XIMC) |
 
 ## Типы моторов
 
-В томографе используются два мотора одного класса `HWMotor`:
+В томографе используются два мотора разных типов:
 
-| Мотор | Тип | `steps_on_deg` | Назначение |
+| Мотор | Класс | Параметры | Назначение |
 |---|---|---|---|
-| **Угловой** | Вращательный | `float` (шагов/°) | Поворот образца при съёмке |
-| **Горизонтальный** | Линейный | `None` | Вынос образца из пучка |
+| **Угловой** | `HWRotaryMotor` | `steps_on_deg: float` | Поворот образца при съёмке |
+| **Горизонтальный** | `HWLinearMotor` | `steps_per_mm: float`, `move_outside_mm: float` | Вынос образца из пучка |
 
-> **TODO:** Архитектурная проблема — оба мотора используют один класс `HWMotor`. Планируется рефакторинг на отдельные классы `HWRotaryMotor` / `HWLinearMotor`.
+## Иерархия классов
+
+```
+BaseMotor
+├── HWRotaryMotor   — вращательный (угловой) мотор
+└── HWLinearMotor   — линейный (горизонтальный) мотор
+
+HWMotor = HWRotaryMotor   # alias для обратной совместимости
+```
 
 ## Конфигурация
 
@@ -32,31 +40,20 @@ speed        = 500           ; шагов/с
 acceleration = 500           ; шагов/с²
 
 [horizontal motor]
-port               = xi-com:///dev/ximc/00000271
-speed              = 200
-acceleration       = 200
-move_object_outside = -4200  ; шагов от нуля до позиции парковки
+port                   = xi-com:///dev/ximc/00000271
+speed                  = 200
+acceleration           = 200
+steps_per_mm           = 199.46      ; 1 шаг = 5.0136 мкм
+move_object_outside_mm = -21.06      ; позиция парковки в мм (≈ -4200 шагов)
 ```
 
-Конфиг читается через [`utils.get_angle_motor_config()`](../utils.py:25) и [`utils.get_horizontal_motor_config()`](../utils.py:34).
+Конфиг читается через [`utils.get_angle_motor_config()`](../utils.py) и [`utils.get_horizontal_motor_config()`](../utils.py).
 
-## Класс `HWMotor`
+---
 
-```python
-from drivers.Motors.Motor import HWMotor
+## Класс `BaseMotor`
 
-# Вращательный мотор (угловой)
-motor = HWMotor(port='xi-com:///dev/ximc/0000037A',
-                speed=500,
-                acceleration=500,
-                steps_on_deg=90.0)  # 32400 шагов / 360° = 90 шагов/°
-
-# Линейный мотор (горизонтальный)
-motor = HWMotor(port='xi-com:///dev/ximc/00000271',
-                speed=200,
-                acceleration=200,
-                steps_on_deg=None)  # None → линейный, deg-методы недоступны
-```
+Базовый класс — не создаётся напрямую. Инкапсулирует открытие/закрытие устройства, применение начальных настроек контроллера и низкоуровневые команды позиционирования (в шагах).
 
 При открытии устройства автоматически применяются настройки контроллера:
 - граничные флаги отключены (`BorderFlags = 0`);
@@ -66,9 +63,26 @@ motor = HWMotor(port='xi-com:///dev/ximc/00000271',
 
 При завершении программы соединение закрывается через `atexit`.
 
-### Методы
+---
 
-#### Информация и статус
+## Класс `HWRotaryMotor`
+
+Вращательный (угловой) мотор.
+
+```python
+from drivers.Motors.Motor import HWRotaryMotor
+from drivers.utils import get_angle_motor_config
+
+config = get_angle_motor_config()
+motor = HWRotaryMotor(config['port'],
+                      config['speed'],
+                      config['acceleration'],
+                      steps_on_deg=config['step_360'])  # 32400 / 360 = 90 шагов/°
+```
+
+### Методы `HWRotaryMotor`
+
+#### Информация и статус (наследуются от `BaseMotor`)
 
 | Метод | Возвращает | Описание |
 |---|---|---|
@@ -78,21 +92,19 @@ motor = HWMotor(port='xi-com:///dev/ximc/00000271',
 
 #### Позиция
 
-| Метод | Применим | Возвращает | Описание |
-|---|---|---|---|
-| `get_position()` | Оба типа | `float` | Абсолютная позиция в шагах (с учётом микрошага) |
-| `get_position_deg()` | Только вращательный | `float` | Абсолютная позиция в градусах |
+| Метод | Возвращает | Описание |
+|---|---|---|
+| `get_position()` | `float` | Абсолютная позиция в шагах (с учётом микрошага) |
+| `get_position_deg()` | `float` | Абсолютная позиция в градусах |
 
 #### Движение
 
-| Метод | Применим | Описание |
-|---|---|---|
-| `move_to_position(position, uposition, blocking)` | Оба | Абсолютное перемещение в шагах |
-| `move_to_position_deg(position, blocking)` | Только вращательный | Абсолютное перемещение в градусах |
-| `move_by_delta(step, ustep, blocking)` | Оба | Относительное смещение в шагах |
-| `move_by_delta_deg(position, blocking)` | Только вращательный | Относительное смещение в градусах |
-
-Параметр `blocking=True` (по умолчанию) блокирует поток до завершения движения. При `blocking=False` команда отправляется без ожидания — используется в режиме ручной юстировки для сохранения отзывчивости сервера.
+| Метод | Описание |
+|---|---|
+| `move_to_position(position, uposition, blocking)` | Абсолютное перемещение в шагах |
+| `move_to_position_deg(position, blocking)` | Абсолютное перемещение в градусах |
+| `move_by_delta(step, ustep, blocking)` | Относительное смещение в шагах |
+| `move_by_delta_deg(position, blocking)` | Относительное смещение в градусах |
 
 #### Калибровка
 
@@ -111,36 +123,111 @@ state = motor.get_state()
 state = motor.get_state(['speed', 'position'])
 ```
 
-Допустимые ключи: `device_name`, `steps_on_deg`, `speed`, `acceleration`, `position`.  
-Для вращательного мотора `position` возвращается в градусах, для линейного — в шагах.
+Допустимые ключи: `device_name`, `steps_on_deg`, `speed`, `acceleration`, `position`.
+`position` возвращается в градусах.
 
 ### Пример: угловой мотор
 
 ```python
-from drivers.Motors.Motor import HWMotor, print_test_info
+from drivers.Motors.Motor import HWRotaryMotor
 from drivers.utils import get_angle_motor_config
 
 config = get_angle_motor_config()
-motor = HWMotor(config['port'], config['speed'], config['acceleration'], config['step_360'])
+motor = HWRotaryMotor(config['port'], config['speed'], config['acceleration'],
+                      steps_on_deg=config['step_360'])
 
 pos = motor.get_position_deg()       # текущий угол
 motor.move_to_position_deg(90.0)     # повернуть на 90°
+motor.move_by_delta_deg(2.0)         # повернуть ещё на 2°
 motor.set_zero()                     # объявить текущую позицию нулём
 ```
+
+---
+
+## Класс `HWLinearMotor`
+
+Линейный (горизонтальный) мотор.
+
+```python
+from drivers.Motors.Motor import HWLinearMotor
+from drivers.utils import get_horizontal_motor_config
+
+config = get_horizontal_motor_config()
+motor = HWLinearMotor(config['port'],
+                      config['speed'],
+                      config['acceleration'],
+                      steps_per_mm=config['steps_per_mm'],      # 199.46 шагов/мм
+                      move_outside_mm=config['move_outside_mm']) # -21.06 мм
+```
+
+### Методы `HWLinearMotor`
+
+#### Позиция
+
+| Метод | Возвращает | Описание |
+|---|---|---|
+| `get_position()` | `float` | Абсолютная позиция в шагах (с учётом микрошага) |
+| `get_position_mm()` | `float` | Абсолютная позиция в миллиметрах |
+
+#### Движение
+
+| Метод | Описание |
+|---|---|
+| `move_to_position(position, uposition, blocking)` | Абсолютное перемещение в шагах |
+| `move_to_position_mm(mm, blocking)` | Абсолютное перемещение в мм |
+| `move_by_delta(step, ustep, blocking)` | Относительное смещение в шагах |
+| `move_by_delta_mm(mm, blocking)` | Относительное смещение в мм |
+| `move_outside(blocking)` | Переместить в позицию парковки (`move_outside_mm`) |
+
+#### Состояние
+
+```python
+state = motor.get_state()
+# → {'device_name': 'xi-com:///dev/ximc/00000271', 'steps_per_mm': 199.46,
+#    'move_outside_mm': -21.06, 'speed': 200, 'acceleration': 200, 'position': 0.0}
+
+state = motor.get_state(['speed', 'position'])
+```
+
+Допустимые ключи: `device_name`, `steps_per_mm`, `move_outside_mm`, `speed`, `acceleration`, `position`.
+`position` возвращается в миллиметрах.
 
 ### Пример: горизонтальный мотор
 
 ```python
-from drivers.Motors.Motor import HWMotor
+from drivers.Motors.Motor import HWLinearMotor
 from drivers.utils import get_horizontal_motor_config
 
 config = get_horizontal_motor_config()
-motor = HWMotor(config['port'], config['speed'], config['acceleration'], steps_on_deg=None)
+motor = HWLinearMotor(config['port'], config['speed'], config['acceleration'],
+                      steps_per_mm=config['steps_per_mm'],
+                      move_outside_mm=config['move_outside_mm'])
 
-pos = motor.get_position()           # текущая позиция в шагах
-motor.move_by_delta(-4200)           # вынести образец из пучка
-motor.move_to_position(0)            # вернуть образец в пучок
+pos_mm = motor.get_position_mm()    # текущая позиция в мм
+motor.move_outside()                # вынести образец из пучка (→ move_outside_mm)
+motor.move_to_position(0)           # вернуть образец в пучок (позиция 0)
+motor.move_by_delta_mm(-5.0)        # сдвинуть на 5 мм назад
 ```
+
+---
+
+## Обратная совместимость
+
+Для кода, использующего старый `HWMotor`, доступен alias:
+
+```python
+from drivers.Motors.Motor import HWMotor  # = HWRotaryMotor
+```
+
+Новый код должен явно использовать `HWRotaryMotor` или `HWLinearMotor`.
+
+---
+
+## Параметр `blocking`
+
+Параметр `blocking=True` (по умолчанию) блокирует поток до завершения движения. При `blocking=False` команда отправляется без ожидания — используется в режиме ручной юстировки для сохранения отзывчивости сервера.
+
+---
 
 ## Утилита `print_test_info()`
 

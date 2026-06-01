@@ -3,7 +3,7 @@ import logging
 
 from ..XRayShutter import XRayShutter
 from ..XRaySource import XRaySource
-from ..Motors import Motor
+from ..Motors.Motor import HWRotaryMotor, HWLinearMotor
 from ..Detector import Detector
 from ..utils import get_shutter_config, get_source_config, \
     get_horizontal_motor_config, get_angle_motor_config
@@ -49,21 +49,21 @@ class HWTomograph(object):
         self.source.last_current_nominal = 10.0
 
         horizontal_motor_config = get_horizontal_motor_config()
-        # steps_on_deg=None: горизонтальный мотор линейный, deg-методы не применяются.
-        # TODO: архитектурная проблема — линейный и вращательный моторы используют один класс HWMotor.
-        #       Требуется рефакторинг на HWRotaryMotor / HWLinearMotor.
-        self.horizontal_motor = Motor.HWMotor(horizontal_motor_config['port'],
-                                              horizontal_motor_config['speed'],
-                                              horizontal_motor_config['acceleration'],
-                                              steps_on_deg=None)
-        # Позиция парковки объекта — вынос из рентгеновского пучка (в шагах).
-        self.horizontal_motor_move_object_outside = horizontal_motor_config['move_object_outside']
+        self.horizontal_motor = HWLinearMotor(
+            horizontal_motor_config['port'],
+            horizontal_motor_config['speed'],
+            horizontal_motor_config['acceleration'],
+            steps_per_mm=horizontal_motor_config['steps_per_mm'],
+            move_outside_mm=horizontal_motor_config['move_outside_mm'],
+        )
 
         angle_motor_config = get_angle_motor_config()
-        self.angle_motor = Motor.HWMotor(angle_motor_config['port'],
-                                         angle_motor_config['speed'],
-                                         angle_motor_config['acceleration'],
-                                         angle_motor_config['step_360'])
+        self.angle_motor = HWRotaryMotor(
+            angle_motor_config['port'],
+            angle_motor_config['speed'],
+            angle_motor_config['acceleration'],
+            steps_on_deg=angle_motor_config['step_360'],
+        )
 
         self.detector = Detector.HWDetector()
 
