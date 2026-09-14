@@ -73,7 +73,8 @@ def safe_hardware_shutdown(tomograph):
     дойдёт до генератора; если и это не удалось — ошибка только логируется,
     чтобы наверх ушла первопричина (например, TimeoutError детектора).
     """
-    for name, action in (('close_shutter', tomograph.close_shutter),
+    for name, action in (('detector_stop_acquisition', tomograph.detector_stop_acquisition),
+                         ('close_shutter', tomograph.close_shutter),
                          ('source_power_off', tomograph.source_power_off)):
         try:
             action()
@@ -195,6 +196,8 @@ class Experiment:
             self.tomograph.source_power_on()
             self.tomograph.source_wait_for_ready()
             self.tomograph.reset_to_zero_angle()
+            # Один xiStartAcquisition на весь эксперимент (см. Tomograph.detector_start_acquisition)
+            self.tomograph.detector_start_acquisition(self.DARK_exposure)
             self.collect_dark_frames()
             if not self.to_be_stopped:
                 self.collect_empty_frames()
@@ -403,6 +406,8 @@ class AdvancedExperiment:
             self.tomograph.source_power_on()
             self.tomograph.source_wait_for_ready()
             self.tomograph.reset_to_zero_angle()
+            # Один xiStartAcquisition на весь эксперимент (см. Tomograph.detector_start_acquisition)
+            self.tomograph.detector_start_acquisition(self.exposure)
 
             self._collect_dark_frames()
             if not self.to_be_stopped:

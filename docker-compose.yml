@@ -63,6 +63,15 @@ services:
     # Разрешить доступ к USB-символьным устройствам (major 189 = /dev/bus/usb/*)
     device_cgroup_rules:
       - "c 189:* rmw"
+    # xiAPI поднимает приоритет своих USB-потоков до realtime; без этого в логе
+    # "xiAPI: Failed to change thread scheduler, check user limit for realtime
+    # priority", а рабочие потоки SDK планируются как обычные и остановка/старт
+    # захвата растягиваются. Нужны лимит rtprio и capability SYS_NICE.
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    cap_add:
+      - SYS_NICE
     environment:
       - LD_LIBRARY_PATH=/xtomo/vendor/ximea/libs/libusb/X64:/xtomo/vendor/ximea/libs/libraw1394/X64:/xtomo/vendor/ximea/api/X64
     entrypoint: ["/xtomo/docker-entrypoint.sh"]

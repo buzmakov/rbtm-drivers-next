@@ -103,3 +103,40 @@ state = d.get_state(['model', 'exposure'])
 - Нет параметра rot90 для поворота изображения.
 - Нет явного ожидания достижения целевой температуры охлаждения при инициализации.
 - Поддержка только первого подключённого устройства (нет выбора по индексу или серийному номеру).
+
+## Segfault в libm3api.so.2 и постоянный режим захвата
+
+С 01.2025 по 09.2026 процесс `tomograph_server` 37 раз падал с одинаковым
+`segfault at 77 ... in libm3api.so.2` (xiAPI V4.27.21). Разбор дизассемблера
+библиотеки (14.09.2026): инструкция падения — `cmp byte [rdi+0x78], 0` при
+`rdi = -1`. Поле контекста камеры `+0x28b8` (объект таймаута) записывается
+значением `-1` в `mmStopAcquisition` и в путях ошибки `mmStartAcquisition`,
+а `mm_WorkerThread` читает его без проверки на `-1` (у `mu_WorkerThread`,
+`md_`, `mq_` проверка есть). Это гонка внутри SDK между остановкой захвата и
+его рабочим потоком.
+
+В «legacy»-режиме `get_frames()` делает `xiStartAcquisition` +
+`xiStopAcquisition` на **каждый** кадр — сотни шансов на гонку за
+эксперимент. Поэтому эксперимент теперь включает постоянный режим:
+
+```python
+detector.start_acquisition(exposure_s, use_trigger=True)   # один раз на эксперимент
+detector.get_frames(exposure_s)                             # software trigger на кадр
+detector.stop_acquisition()                                 # один раз в конце (finally)
+```
+
+См. `Tomograph.detector_start_acquisition()` / `detector_stop_acquisition()`
+в `experiment/tomograph.py`; при ошибке включения режима драйвер остаётся в
+legacy-режиме и пишет предупреждение в лог. Превью из UI вне эксперимента
+по-прежнему идут через legacy-режим.
+
+Сопутствующее:
+
+- Захват выполняется в одном долгоживущем потоке; при зависании SDK (USB/FireWire
+  обрыв) процесс завершается через `os._exit(1)` **без** `atexit` — раньше
+  `sys.exit(1)` закрывал камеру из-под зависшего `xiGetImage`, что само по себе
+  воспроизводит ту же гонку, и к тому же блокировался в `ThreadPoolExecutor.shutdown`.
+- `docker-compose.yml`: `ulimits.rtprio=99` + `cap_add: SYS_NICE`, чтобы xiAPI мог
+  поднять приоритет рабочих потоков (иначе в логе `Failed to change thread scheduler`).
+- Актуальная LTS xiAPI — V4.32.00 (10.2025); обновление пакета в `vendor/ximea`
+  остаётся отдельной задачей, публичный changelog про этот segfault молчит.

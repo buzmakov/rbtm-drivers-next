@@ -1,4 +1,5 @@
 import datetime
+import logging
 import time
 import json
 
@@ -180,6 +181,35 @@ class Tomograph:
 
     def shutter_state(self):
         return json.dumps({'state': self.shutter_status()})
+
+    # ------------------------------------------------------------------
+    # Постоянный режим захвата детектора
+    # ------------------------------------------------------------------
+
+    def detector_start_acquisition(self, exposure_ms):
+        """Запустить постоянный захват на весь эксперимент (software trigger).
+
+        Без этого каждый кадр делает xiStartAcquisition + xiStopAcquisition.
+        В libm3api V4.27.21 xiStopAcquisition помечает объект таймаута в
+        контексте камеры значением -1, а рабочий поток mm_WorkerThread
+        читает его без проверки — гонка, которая роняет tomograph_server
+        (segfault at 0x77 в libm3api.so.2, 37 раз с 01.2025). Один старт и
+        одна остановка на эксперимент вместо сотен сводят окно гонки к минимуму.
+
+        Возвращает True, если режим включён; при ошибке камеры пишет
+        предупреждение и возвращает False — детектор остаётся в legacy-режиме.
+        """
+        try:
+            self.hwtomo.detector.start_acquisition(exposure_ms / 1.e3, True)
+            return True
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                'detector_start_acquisition failed: %s (staying in legacy per-frame mode)', e)
+            return False
+
+    def detector_stop_acquisition(self):
+        """Остановить постоянный захват (безопасно, если он не был запущен)."""
+        self.hwtomo.detector.stop_acquisition()
 
     def set_x(self, new_x):
         """

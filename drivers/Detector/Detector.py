@@ -1,5 +1,6 @@
 # import logging
 import concurrent.futures
+import os
 import sys
 import numpy as np
 
@@ -64,6 +65,11 @@ class HWDetector(object):
         self._acquisition_active = False
         self._trigger_mode = False          # True = XI_TRG_SOFTWARE mode
         self._current_exposure_us = None
+        # Один долгоживущий поток захвата на весь процесс: xiGetImage всегда
+        # вызывается из одного и того же OS-потока (раньше — новый поток на
+        # каждый кадр через ThreadPoolExecutor внутри get_frames()).
+        self._capture_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix='ximea-capture')
 
     # ------------------------------------------------------------------
     # Persistent acquisition API
@@ -218,15 +224,52 @@ class HWDetector(object):
     # Покрывает время передачи данных, USB-задержки, jitter.
     _HARD_TIMEOUT_MARGIN_S = 15.0
 
-    def _capture_one_frame(self, timeout_us):
+    def _capture_one_frame(self, timeout_ms):
         """Захватить один кадр.
-        Вызывается из get_frames() в отдельном потоке через concurrent.futures,
-        чтобы применить внешний (hard) таймаут независимо от XIMEA SDK.
+        Вызывается из get_frames() в выделенном потоке захвата через
+        concurrent.futures, чтобы применить внешний (hard) таймаут
+        независимо от XIMEA SDK.
         """
         if self._trigger_mode:
             self.cam.set_trigger_software(1)
-        self.cam.get_image(self._img, timeout=timeout_us)
+        self.cam.get_image(self._img, timeout=timeout_ms)
         return self._img.get_image_data_numpy().astype(np.uint32)
+
+    def _capture_with_hard_timeout(self, timeout_ms, hard_timeout_s):
+        """Захватить кадр с жёстким таймаутом поверх SDK-таймаута.
+
+        При зависании SDK (USB-обрыв: xiGetImage не возвращается даже
+        с собственным таймаутом) процесс завершается через ``os._exit(1)``,
+        и Docker (``restart: unless-stopped``) перезапускает контейнер.
+
+        Почему ``os._exit``, а не ``sys.exit``: SystemExit запускал
+        ``atexit``-обработчики, т.е. ``close()`` → ``xiStopAcquisition`` /
+        ``xiCloseDevice`` из главного потока, пока поток захвата всё ещё
+        сидит внутри ``xiGetImage``. Разрушение контекста камеры под
+        работающими потоками SDK — ровно тот сценарий, в котором
+        libm3api падает с segfault (worker-thread читает контекст,
+        уже помеченный как недействительный). Кроме того, ``sys.exit``
+        внутри ``with ThreadPoolExecutor`` блокировался в
+        ``shutdown(wait=True)`` на зависшем потоке и процесс не завершался.
+        """
+        future = self._capture_executor.submit(self._capture_one_frame, timeout_ms)
+        try:
+            return future.result(timeout=hard_timeout_s)
+        except concurrent.futures.TimeoutError:
+            tomo_logger.logger.critical(
+                "Detector: get_image HARD TIMEOUT (%.1fs) — "
+                "USB hang detected. Завершаем tomograph_server "
+                "для автоматического перезапуска Docker.",
+                hard_timeout_s,
+            )
+            for handler in tomo_logger.logger.handlers:
+                try:
+                    handler.flush()
+                except Exception:
+                    pass
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
 
     def get_frames(self, exposure, number_frames=1):
         """Capture and return frames as a uint16 numpy array.
@@ -273,20 +316,7 @@ class HWDetector(object):
                     self._current_exposure_us = exposure_us
 
                 for frame_numb in range(number_frames):
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                        future = ex.submit(self._capture_one_frame, timeout_ms)
-                        try:
-                            frame_data = future.result(timeout=hard_timeout_s)
-                        except concurrent.futures.TimeoutError:
-                            tomo_logger.logger.critical(
-                                "Detector: get_image HARD TIMEOUT (%.1fs) — "
-                                "USB hang detected. Завершаем tomograph_server "
-                                "для автоматического перезапуска Docker.",
-                                hard_timeout_s,
-                            )
-                            # sys.exit(1): Docker (restart: unless-stopped) перезапустит
-                            # контейнер и переинициализирует XIMEA SDK.
-                            sys.exit(1)
+                    frame_data = self._capture_with_hard_timeout(timeout_ms, hard_timeout_s)
                     if frame_numb == 0:
                         data = frame_data
                     else:
@@ -300,18 +330,7 @@ class HWDetector(object):
                 self.cam.start_acquisition()
                 try:
                     for frame_numb in range(number_frames):
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                            future = ex.submit(self._capture_one_frame, timeout_ms)
-                            try:
-                                frame_data = future.result(timeout=hard_timeout_s)
-                            except concurrent.futures.TimeoutError:
-                                tomo_logger.logger.critical(
-                                    "Detector: get_image HARD TIMEOUT (%.1fs) — "
-                                    "USB hang detected. Завершаем tomograph_server "
-                                    "для автоматического перезапуска Docker.",
-                                    hard_timeout_s,
-                                )
-                                sys.exit(1)
+                        frame_data = self._capture_with_hard_timeout(timeout_ms, hard_timeout_s)
                         if frame_numb == 0:
                             data = frame_data
                         else:
