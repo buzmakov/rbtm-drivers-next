@@ -1,0 +1,16 @@
+# ISOVOLT 3003 (RS-232 через адаптер Prolific PL2303, 067b:2303).
+#
+# 1. ModemManager считает любой USB-serial кандидатом в модемы
+#    (ID_MM_CANDIDATE=1) и при каждой загрузке шлёт в порт генератора
+#    AT-команды с переключением DTR/RTS. Запрещаем.
+# 2. Стабильное имя /dev/isovolt, не зависящее от номера ttyUSB.
+#
+# Установка на robotom (нужен sudo):
+#   sudo cp udev/99-isovolt.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty
+#   udevadm info -q property /dev/ttyUSB0 | grep -E "ID_MM|DEVLINKS"
+# Модемов на robotom нет (mmcli -L -> "No modems were found"), поэтому
+# альтернатива — отключить службу целиком:
+#   sudo systemctl disable --now ModemManager
+ACTION=="add|change", SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1", SYMLINK+="isovolt", GROUP="dialout", MODE="0660"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="067b", ATTR{idProduct}=="2303", ENV{ID_MM_DEVICE_IGNORE}="1"

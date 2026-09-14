@@ -64,6 +64,24 @@ def create_event(event_type, exp_id, MoF, exception_message='', error=''):
     return None
 
 
+def safe_hardware_shutdown(tomograph):
+    """Закрыть затвор и выключить ВН, не маскируя исходное исключение.
+
+    Вызывается из ``finally`` в ``run()`` экспериментов. Каждый шаг
+    выполняется независимо: если сервер оборудования упал и был
+    перезапущен, RedisProxy авто-создаст новый ``HWTomograph`` и команда
+    дойдёт до генератора; если и это не удалось — ошибка только логируется,
+    чтобы наверх ушла первопричина (например, TimeoutError детектора).
+    """
+    for name, action in (('close_shutter', tomograph.close_shutter),
+                         ('source_power_off', tomograph.source_power_off)):
+        try:
+            action()
+            tomo_logger.info('safe_hardware_shutdown: {} done'.format(name))
+        except Exception as e:
+            tomo_logger.error('safe_hardware_shutdown: {} failed: {}'.format(name, e))
+
+
 @traced(tomo_logger.logger)
 class Experiment:
     def __init__(self, _tomograph, exp_param):
@@ -173,16 +191,20 @@ class Experiment:
     def run(self):
         self.to_be_stopped = False
         self.stop_exception = None
-        self.tomograph.source_power_on()
-        self.tomograph.source_wait_for_ready()
-        self.tomograph.reset_to_zero_angle()
-        self.collect_dark_frames()
-        if not self.to_be_stopped:
-            self.collect_empty_frames()
-        if not self.to_be_stopped:
-            self.collect_data_frames()
-        self.tomograph.close_shutter()
-        self.tomograph.source_power_off()
+        try:
+            self.tomograph.source_power_on()
+            self.tomograph.source_wait_for_ready()
+            self.tomograph.reset_to_zero_angle()
+            self.collect_dark_frames()
+            if not self.to_be_stopped:
+                self.collect_empty_frames()
+            if not self.to_be_stopped:
+                self.collect_data_frames()
+        finally:
+            # Выполняется всегда — в том числе при падении tomograph_server
+            # посреди съёмки (07.09.2026 источник остался под ВН с открытым
+            # затвором, пока хост не выключили вручную).
+            safe_hardware_shutdown(self.tomograph)
         # Если была запрошена остановка — сообщаем об этом
         if self.to_be_stopped and self.stop_exception is not None:
             raise self.stop_exception
@@ -377,18 +399,19 @@ class AdvancedExperiment:
         with self._status_lock:
             self.status_dict['start_time'] = self._start_time
 
-        self.tomograph.source_power_on()
-        self.tomograph.source_wait_for_ready()
-        self.tomograph.reset_to_zero_angle()
+        try:
+            self.tomograph.source_power_on()
+            self.tomograph.source_wait_for_ready()
+            self.tomograph.reset_to_zero_angle()
 
-        self._collect_dark_frames()
-        if not self.to_be_stopped:
-            self._collect_initial_empty_frames()
-        if not self.to_be_stopped:
-            self._collect_data_frames()
-
-        self.tomograph.close_shutter()
-        self.tomograph.source_power_off()
+            self._collect_dark_frames()
+            if not self.to_be_stopped:
+                self._collect_initial_empty_frames()
+            if not self.to_be_stopped:
+                self._collect_data_frames()
+        finally:
+            # Выполняется всегда — см. комментарий в Experiment.run()
+            safe_hardware_shutdown(self.tomograph)
 
         # Если была запрошена остановка — сообщаем об этом
         if self.to_be_stopped and self.stop_exception is not None:

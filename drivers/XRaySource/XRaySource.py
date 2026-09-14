@@ -9,6 +9,14 @@ CACHE_TTL = 3           # секунды: кэшировать значение 
                         # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
 WARMUP_TIMEOUT = 1800   # максимальное время прогрева — 30 минут
 
+# Реестр долгоживущих экземпляров: один HWSource на порт в процессе.
+# Каждое открытие/закрытие serial-порта дёргает линии DTR/RTS на RS-232
+# ISOVOLT 3003, а пересоздание HWTomograph через RedisProxy (при любой
+# ошибке инициализации других устройств) раньше открывало порт заново
+# при каждой попытке — см. HWSource.get_shared().
+_shared_sources = {}
+_shared_sources_lock = threading.Lock()
+
 
 class HWSource(object):
     """Драйвер рентгеновского источника ISOVOLT 3003 (Seifert/GE).
@@ -208,14 +216,47 @@ class HWSource(object):
             )
             sleep(0.5)  # пауза для инициализации устройства
 
-        logging.debug('Source.__init__ finished.')
+        logging.info('Source.__init__: port %s opened (mock=%s)', tty_name, mock)
         atexit.register(self.close)
 
+    @classmethod
+    def get_shared(cls, tty_name, mock=False):
+        """Вернуть долгоживущий экземпляр драйвера для порта (один на процесс).
+
+        Повторные вызовы с тем же ``tty_name`` возвращают уже открытый
+        объект и НЕ переоткрывают serial-порт. Если экземпляр был явно
+        закрыт через ``close()``, создаётся новый.
+
+        Args:
+            tty_name: Путь к serial-порту, например '/dev/ttyUSB0'.
+            mock: Если True — работает без реального устройства.
+
+        Returns:
+            HWSource: Общий экземпляр драйвера.
+        """
+        key = (tty_name, bool(mock))
+        with _shared_sources_lock:
+            instance = _shared_sources.get(key)
+            if instance is None or not instance.is_open():
+                instance = cls(tty_name, mock=mock)
+                _shared_sources[key] = instance
+            else:
+                logging.debug('Source.get_shared(): reusing open instance for %s', tty_name)
+            return instance
+
+    def is_open(self):
+        """Вернуть True, если serial-порт открыт (в mock-режиме — всегда True)."""
+        if self.mock:
+            return True
+        return self.serial_port is not None and self.serial_port.is_open
+
     def close(self):
-        """Закрыть serial-порт."""
+        """Закрыть serial-порт (повторный вызов безопасен)."""
         if self.mock:
             return
-        self.serial_port.close()
+        if self.serial_port is not None and self.serial_port.is_open:
+            logging.info('Source.close(): closing port %s', self.tty_name)
+            self.serial_port.close()
 
     # ------------------------------------------------------------------
     # Ожидание готовности
@@ -326,16 +367,20 @@ class HWSource(object):
         """
         if self.mock:
             return
-        logging.debug('Source.off_high_voltage() starting...')
+        # INFO, а не DEBUG: выключение ВН должно быть видно в логах сервера
+        # наравне с on_high_voltage() — иначе невозможно отличить команду
+        # драйвера от самопроизвольного отключения генератора.
+        logging.info('Source.off_high_voltage() starting...')
         with self._port_lock:
             self._write_command("HV:0")
+            logging.info('Source.off_high_voltage(): HV:0 sent')
         error = self.get_error()
         if error is not None:
             logging.error("Source.off_high_voltage() error: {}".format(error))
             raise RuntimeError("Source.off_high_voltage() error: {}".format(error))
 
         self.wait_for_high_voltage_down()
-        logging.debug('Source.off_high_voltage() finished.')
+        logging.info('Source.off_high_voltage() finished.')
 
     def is_on_high_voltage(self):
         """Вернуть True, если высокое напряжение включено.

@@ -37,6 +37,7 @@ class BaseMotor(object):
         self.device_name = device_name
         self.speed = int(speed)
         self.acceleration = int(acceleration)
+        self.device_id = -1
         self.open()
         atexit.register(self.close)
 
@@ -64,8 +65,21 @@ class BaseMotor(object):
         self.device_id = device_id
         logging.info('Motor device_id: {}'.format(self.device_id))
         if device_id == -1:
-            logging.error("Motor.open(): open failed")
-            raise RuntimeError("Motor.open(): open failed")
+            logging.error("Motor.open(): open failed (%s)", self.device_name)
+            raise RuntimeError("Motor.open(): open failed ({})".format(self.device_name))
+
+        # Если любая из настроек ниже упадёт — освобождаем контроллер,
+        # иначе libximc держит его занятым и следующая попытка открытия
+        # (например, при пересоздании HWTomograph) падает с "open failed".
+        try:
+            self._configure()
+        except Exception:
+            self.close()
+            raise
+
+    def _configure(self):
+        """Применить начальные настройки к открытому контроллеру (см. open())."""
+        device_id = self.device_id
 
         # Отключить граничные флаги (без аппаратных концевых выключателей)
         edges_settings = edges_settings_t()
@@ -124,9 +138,13 @@ class BaseMotor(object):
         Вызывается автоматически при завершении программы через atexit.
         :return: код результата libximc (Result.Ok = 0).
         """
+        # Повторный вызов (atexit после явного close()) — ничего не делаем
+        if self.device_id is None or self.device_id == -1:
+            return Result.Ok
         result_code = lib.close_device(byref(cast(self.device_id, POINTER(c_int))))
         if result_code != Result.Ok:
             logging.error("Motor.close() error: {}".format(result_code))
+        self.device_id = -1
         return result_code
 
     # ─── Info / status ───────────────────────────────────────────────────────────
