@@ -54,7 +54,7 @@ services:
       - "/dev/ttyACM1:/dev/ttyACM1"
       - "/dev/ttyACM2:/dev/ttyACM2"
       - "/dev/ttyACM3:/dev/ttyACM3"
-      - "/dev/ttyACM4:/dev/ttyACM4"
+      # - "/dev/ttyACM4:/dev/ttyACM4"
       # FireWire: задать XIMEA_CAMERA_DEVICE=/dev/fw1:/dev/fw1 в restart_fw.sh
       # USB: переменная не нужна — камера доступна через /dev/bus/usb volume
       # Дефолт /dev/null — безвредный fallback когда переменная не задана
