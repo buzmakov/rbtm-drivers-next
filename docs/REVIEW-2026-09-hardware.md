@@ -172,3 +172,29 @@ Docstring `get_frames` (`:280-284`) противоречит `:68-70` про п�
 
 Не делаем без отдельного решения: смена транспорта (Redis → HTTP), двухпоточный сервер (§2.3, второй вариант),
 удаление роутов, которые не вызывает rbtm-web (нужно согласовать с rbtm-web), возобновление эксперимента после падения.
+
+---
+
+## 5. Статус на 21.09.2026 (ветка `review/hardware-cleanup`)
+
+Сделано (всё влито в `review/hardware-cleanup`, ветки `fix/*` сохранены в worktree `../worktrees/`):
+
+| Область | Что сделано | Коммиты |
+|---|---|---|
+| Инфраструктура | удалены `restart_fw.sh`/`restart_usb.sh`, дубль `experiment/redis_proxy.py`; `redisinsight` → профиль `debug`; `requirements.txt` без `cachetools`/`ipython`/`waitress`; один `TomoLogger` (`tomologging.py`); readme по факту | `318f90f` |
+| RPC | `hwrpc.py` вместо `redis_proxy.py`: синглтон `HWTomograph` на сервере, явный протокол, `HardwareError`/`HardwareUnavailable`, таймаут на вызов, пропуск просроченных запросов, TTL ответов; Flask стартует без железа, `/state` → `unavailable`; JSON-ответы с кодами 400/409/503/500; лок на `/experiment/start`; 409 на ручное управление во время эксперимента; `tests/test_hwrpc.py` | `6c79a3a` |
+| Детектор | один режим захвата (без legacy-пути и отката в него), `DetectorHangError` + хук `on_hang` (политика `os._exit` в `tomograph_server`), lifecycle, кэш модели/пикселя, `HWTomograph.capture_frame` (1 RPC на кадр вместо ~10), верхняя граница экспозиции, оффлайн-тесты | `fix/detector`, `87ba56d` |
+| Моторы/затвор | таймаут движения по `MoveSts` (`MotorTimeoutError`), угол в [0, 360) и кратчайший путь, `motor_math` (шаги/микрошаги/мм, знак микрошагов), `_check`/общий `get_state`, нативные типы в `get_info`, `ImportError` вместо `exit()`; затвор: один открытый порт с `write_timeout` и локом, `open_shutter`/`close_shutter` (старые имена — deprecated-синонимы), `release()`; `test_motor_math.py` | `fix/motors-shutter`, `502d6ce` |
+| Источник | удалены `PN`/`PA`/`SP`/`set_state`/коды 1–32/блок `interlock status` (→ `INTERLOCK_ERROR_CODES` по SR:12); `SourceCommunicationError`/`SourceBusyError`; единый `INFORMATIONAL_CODES`; остаточная ошибка в `set_voltage`; хвост `warmup` под лок, лок только на транзакцию; `_transact`/`_wait_until`; `conftest` не открывает порт при сборе; 19 оффлайн-тестов с `FakeIsovolt` | `fix/xray-source` |
+| Эксперимент | `BaseExperiment`, один `carry_out_experiment`, join отправки последнего кадра до события завершения | `8abe4bd` |
+
+**Проверить на robotom перед слиянием в `develop`** (`restart.sh`, затем короткий эксперимент, затем `pytest -m hardware drivers/tests` при остановленном сервере):
+
+1. Старт: `logs/hwrpc_server.log` — `hardware object ready`; `/tomograph/1/state` → `ready`; при остановленном `rbtm-tomograph-server` → `unavailable`, Flask жив.
+2. Детектор: первый кадр без явного `start_acquisition` (ленивый старт); смена экспозиции между кадрами; `journalctl -k | grep segfault` после эксперимента и превью; `capture_frame` отдаёт uint16 нужной формы.
+3. Моторы: `move_outside()` теперь шлёт `(-4200, -161)` вместо `(-4201, +95)` — парковка в то же место; 359.5° → 0° = короткий ход; полный оборот без ложного `MotorTimeoutError`.
+4. Затвор: порт открыт один раз на всё время жизни объекта; двойной `$KE` только при создании.
+5. Источник: коды 118/119/121 теперь ведут к `CL` + повтору команды; `off_high_voltage()` доходит до генератора во время прогрева (прерывает его); формат `SV:xxxxxx` оставлен как в §8.4.
+6. Логи переименованы: `logs/hwrpc_server.log`, `logs/hwrpc_main.log` (вместо `redis_proxy_*.log`).
+
+Не сделано (см. §4 «не делаем без отдельного решения»): двухпоточный сервер, проброс `/dev/isovolt`/`/dev/ximc/*` через udev вместо `ttyACM0..3`, удаление роутов, которые не вызывает rbtm-web, чистка `STATUS_STRINGS` ≥ 33 по руководству (≈30 кодов не найдены), `FLASK_DEBUG=1` в `Dockerfile`, `STORAGE_URI` в конфиг.
