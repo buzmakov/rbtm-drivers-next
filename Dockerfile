@@ -30,7 +30,7 @@ COPY experiment/ /xtomo/experiment
 EXPOSE 5001
 
 COPY tomograph_server.py /xtomo/tomograph_server.py
-COPY redis_proxy.py /xtomo/redis_proxy.py
+COPY hwrpc.py /xtomo/hwrpc.py
 COPY tomologging.py /xtomo/tomologging.py
 COPY docker-entrypoint.sh /xtomo/docker-entrypoint.sh
 RUN chmod +x /xtomo/docker-entrypoint.sh

@@ -8,6 +8,7 @@ import json
 from .tomograph import Tomograph
 from .experiment import check_and_prepare_exp_parameters, send_to_storage, ModExpError, prepare_send_frame, make_preview_data
 from .constants import FRAME_PNG_FILENAME, STORAGE_EXP_START_URI, SOMEONE_STOP_MSG
+from hwrpc import HardwareError, HardwareUnavailable
 
 from . import tomologger
 tomo_logger = tomologger.tomologger
@@ -16,6 +17,7 @@ bp_main = Blueprint('main', __name__, url_prefix='/')
 bp_tomograph = Blueprint('tomograph', __name__, url_prefix='/tomograph/<int:tomo_num>')
 
 tomograph = Tomograph()
+_experiment_start_lock = threading.Lock()
 
 @bp_tomograph.before_request
 @bp_main.before_request
@@ -29,6 +31,16 @@ def after_request(response):
     header = response.headers
     header['Access-Control-Allow-Origin'] = '*'
     return response
+
+
+def _experiment_running_response():
+    """409, если идёт эксперимент: ручные команды железу в это время портят данные."""
+    if tomograph.current_experiment is None:
+        return None
+    return create_response(success=False, error='Experiment is running',
+                           exception_message='Manual hardware control is disabled during an experiment; '
+                                             'use /experiment/last-frame for preview',
+                           status=409)
 
 
 # Base route
@@ -67,6 +79,8 @@ def source_state(tomo_num):
         return create_response(success=True, result=state)
     except ModExpError as e:
         return e.create_response()
+    except HardwareError as e:
+        return hardware_error_response(e)
 
 
 @bp_tomograph.route('/source/set-voltage', methods=['POST'])
@@ -98,11 +112,17 @@ def source_get_current(tomo_num):
 # Shutter routes
 @bp_tomograph.route('/shutter/open/<int:time_>', methods=['GET'])
 def shutter_open(tomo_num, time_):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     return call_method_create_response(tomo_num, method_name='open_shutter', args=time_)
 
 
 @bp_tomograph.route('/shutter/close/<int:time_>', methods=['GET'])
 def shutter_close(tomo_num, time_):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     return call_method_create_response(tomo_num, method_name='close_shutter', args=time_)
 
 
@@ -114,6 +134,9 @@ def shutter_state(tomo_num):
 # Motor routes
 @bp_tomograph.route('/motor/set-horizontal-position', methods=['POST'])
 def motor_set_horizontal_position(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     success, new_pos, response_if_fail = check_request(request.data)
     if not success:
         return response_if_fail
@@ -130,6 +153,9 @@ def motor_set_vertical_position(tomo_num):
 
 @bp_tomograph.route('/motor/set-angle-position', methods=['POST'])
 def motor_set_angle_position(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     success, new_pos, response_if_fail = check_request(request.data)
     if not success:
         return response_if_fail
@@ -153,22 +179,34 @@ def motor_get_angle_position(tomo_num):
 
 @bp_tomograph.route('/motor/reset-angle-position', methods=['GET'])
 def motor_reset_angle_position(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     return call_method_create_response(tomo_num, method_name='reset_to_zero_angle')
 
 
 @bp_tomograph.route('/motor/move-away', methods=['GET'])
 def motor_move_away(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     return call_method_create_response(tomo_num, method_name='move_away')
 
 
 @bp_tomograph.route('/motor/move-back', methods=['GET'])
 def motor_move_back(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     return call_method_create_response(tomo_num, method_name='move_back')
 
 
 # Detector routes
 @bp_tomograph.route('/detector/get-frame', methods=['POST'])
 def detector_get_frame(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     success, exposure, response_if_fail = check_request(request.data)
     if not success:
         return response_if_fail
@@ -177,6 +215,9 @@ def detector_get_frame(tomo_num):
 
 @bp_tomograph.route('/detector/get-frame-with-closed-shutter', methods=['POST'])
 def detector_get_frame_with_closed_shutter(tomo_num):
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     success, exposure, response_if_fail = check_request(request.data)
     if not success:
         return response_if_fail
@@ -201,6 +242,8 @@ def detector_get_model(tomo_num):
         return create_response(success=True, result={'model': model, 'pixel_size_mm': pixel_size})
     except ModExpError as e:
         return e.create_response()
+    except HardwareError as e:
+        return hardware_error_response(e)
 
 
 @bp_tomograph.route('/detector/get-frame-preview', methods=['POST'])
@@ -217,6 +260,9 @@ def detector_get_frame_preview(tomo_num):
       width  : scalar int
       height : scalar int
     """
+    busy = _experiment_running_response()
+    if busy is not None:
+        return busy
     if not request.data:
         return create_response(success=False, error='Request is empty')
 
@@ -240,8 +286,13 @@ def detector_get_frame_preview(tomo_num):
         result = tomograph.get_frame(exposure, with_open_shutter=True)
     except ModExpError as e:
         return e.create_response()
-
-    tomograph.close_shutter()
+    except HardwareError as e:
+        return hardware_error_response(e)
+    finally:
+        try:
+            tomograph.close_shutter()
+        except Exception as e:
+            tomo_logger.logger.warning('preview: close_shutter failed: %s', e)
 
     image_numpy = result['image_data']['raw_image']
 
@@ -281,34 +332,34 @@ def experiment_start(tomo_num):
     if not success:
         return create_response(success=success, error=error)
 
-    tomo_state, exception_message = tomograph.tomo_state()
-    if tomo_state == 'unavailable':
-        return create_response(success=False, error="Could not connect with tomograph",
-                               exception_message=exception_message)
-    elif tomo_state == 'experiment':
-        return create_response(success=False, error="On this tomograph experiment is running")
-    elif tomo_state != 'ready':
-        return create_response(success=False, error="Undefined tomograph state")
+    # Проверка состояния и запуск потока — под одним локом, иначе два
+    # одновременных /experiment/start могли запустить два эксперимента.
+    with _experiment_start_lock:
+        tomo_state, exception_message = tomograph.tomo_state()
+        if tomo_state == 'unavailable':
+            return create_response(success=False, error="Could not connect with tomograph",
+                                   exception_message=exception_message, status=503)
+        elif tomo_state == 'experiment':
+            return create_response(success=False, error="On this tomograph experiment is running", status=409)
+        elif tomo_state != 'ready':
+            return create_response(success=False, error="Undefined tomograph state")
 
-    try:
-        # Обогащаем данные эксперимента параметрами детектора
         try:
-            data_dict = json.loads(request.data)
-            data_dict['detector_model'] = tomograph.get_detector_model()
-            data_dict['pixel_size'] = tomograph.get_detector_pixel_size()
-            enriched_data = json.dumps(data_dict).encode()
-        except Exception:
-            enriched_data = request.data
-        send_to_storage(STORAGE_EXP_START_URI, data=enriched_data)
-    except ModExpError as e:  #TODO: should we crashed here?
-        return e.create_response()
+            # Обогащаем данные эксперимента параметрами детектора
+            try:
+                data['detector_model'] = tomograph.get_detector_model()
+                data['pixel_size'] = tomograph.get_detector_pixel_size()
+                enriched_data = json.dumps(data).encode()
+            except Exception:
+                enriched_data = request.data
+            send_to_storage(STORAGE_EXP_START_URI, data=enriched_data)
+        except ModExpError as e:
+            return e.create_response()
 
-    if exp_param['advanced']:
-        thr = threading.Thread(target=tomograph.carry_out_advanced_experiment, args=(exp_param,))
-        thr.start()
-    else:
-        thr = threading.Thread(target=tomograph.carry_out_simple_experiment, args=(exp_param,))
-        thr.start()
+        target = (tomograph.carry_out_advanced_experiment if exp_param['advanced']
+                  else tomograph.carry_out_simple_experiment)
+        tomograph.mark_experiment_starting()
+        threading.Thread(target=target, args=(exp_param,), name='experiment', daemon=True).start()
 
     return create_response(True)
 
@@ -396,14 +447,23 @@ def experiment_last_frame(tomo_num):
 
 
 # functions
-def create_response(success=True, exception_message='', error='', result=None):
+def create_response(success=True, exception_message='', error='', result=None, status=200):
     response_dict = {
         'success': success,
         'exception message': exception_message,
         'error': error,
         'result': result,
     }
-    return json.dumps(response_dict)
+    return Response(json.dumps(response_dict), status=status, mimetype='application/json')
+
+
+def hardware_error_response(e):
+    """JSON-ответ на ошибку железа вместо HTML-трейсбека Flask."""
+    if isinstance(e, HardwareUnavailable):
+        return create_response(success=False, error='Hardware server unavailable',
+                               exception_message=e.message, status=503)
+    return create_response(success=False, error='Hardware error: {}'.format(e.type_name),
+                           exception_message=e.message, status=500)
 
 
 def call_method_create_response(tomo_num, method_name, args=(), GET_FRAME_method=False):
@@ -412,8 +472,13 @@ def call_method_create_response(tomo_num, method_name, args=(), GET_FRAME_method
 
     try:
         result = getattr(tomograph, method_name)(*args)
-    except ModExpError as e:   #TODO: should we crashed here?
+    except ModExpError as e:
         return e.create_response()
+    except HardwareError as e:
+        return hardware_error_response(e)
+    except Exception as e:
+        tomo_logger.logger.exception('%s failed', method_name)
+        return create_response(success=False, error='Internal error: {}'.format(e), status=500)
 
     if not GET_FRAME_method:
         return create_response(success=True, result=result)
@@ -432,7 +497,7 @@ def check_request(request_data):
 
     try:
         request_data_dict = json.loads(request_data)
-    except TypeError:
-        return False, None, create_response(success=False, error='Request has not JSON data')
+    except (TypeError, ValueError):
+        return False, None, create_response(success=False, error='Request has not JSON data', status=400)
     else:
         return True, request_data_dict, ''

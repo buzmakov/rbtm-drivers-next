@@ -1,6 +1,11 @@
 from flask import Flask
 
-from . import tomologger
+from hwrpc import configure_logging
+
+# Корневой логгер → logs/hwrpc_main.log (RPC-клиент и всё, что пишет через logging.*)
+configure_logging('main')
+
+from . import tomologger  # noqa: E402
 tomo_logger = tomologger.tomologger
 
 from . import routes

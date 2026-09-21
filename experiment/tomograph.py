@@ -3,52 +3,62 @@ import logging
 import time
 import json
 
+import redis
+
 from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
-# from drivers.Tomograph.Tomograph import HWTomograph
-from .redis_proxy import RedisProxy
+from hwrpc import HardwareClient, HardwareUnavailable
 
 from autologging import traced
 from . import tomo_logger
 
-class HWTomograph:
-    pass
+# Таймауты RPC (с). Обычные запросы к железу — секунды; движение мотора —
+# до полного оборота (32400 шагов / 500 шаг/с ≈ 65 с) с запасом; кадр —
+# от экспозиции (см. get_frame).
+RPC_TIMEOUT_S = 15
+RPC_MOVE_TIMEOUT_S = 120
+RPC_FRAME_EXTRA_S = 30
+
 
 @traced(tomo_logger.logger)
 class Tomograph:
+    """Клиентская сторона томографа: валидация параметров и вызовы HWTomograph через hwrpc.
+
+    Ничего не создаёт на стороне железа: объект HWTomograph живёт в
+    tomograph_server и переживает рестарт этого процесса; если упал сам
+    сервер железа, вызовы бросают HardwareUnavailable, а Flask продолжает работать.
+    """
+
     def __init__(self, redis_host='redis', redis_port=6379, redis_db=0):
-        # Используем RedisProxy для инициализации HWTomograph.
-        # Режим mock источника определяется из drivers/config/devices.cfg.
-        HWTomographProxy = RedisProxy.create(HWTomograph,
-                                     redis_host=redis_host,
-                                     redis_port=redis_port,
-                                     redis_db=redis_db,
-                                     # 60 сек: покрывает полный оборот мотора (~65 с при speed=500)
-                                     # + детектор с watchdog бросает ошибку раньше через hard timeout.
-                                     # Было 600 сек × 3 попытки = 30 мин при USB-зависании.
-                                     timeout=60,
-                                     max_retries=1,
-                                     )
-        self.hwtomo = HWTomographProxy()
+        self.hw = HardwareClient(redis.Redis(host=redis_host, port=redis_port, db=redis_db),
+                                 default_timeout_s=RPC_TIMEOUT_S)
         self.current_experiment = None
+        self._experiment_starting = False  # поток запущен, current_experiment ещё не присвоен
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
 
-    # def __del__(self):
-    #     del self.hwtomo
-
     def shutter_status(self):
-        if self.hwtomo.shutter.is_open():
+        if self.hw.call('shutter.is_open'):
             return "OPEN"  # TODO: replace with enum?
         else:
             return "CLOSE"
 
     def tomo_state(self):
-        if self.current_experiment is not None:
-            return 'experiment', ""  # TODO: replace with enum?
-        else:
-            return 'ready', ""
+        """('experiment' | 'ready' | 'unavailable', сообщение)."""
+        if self.current_experiment is not None or self._experiment_starting:
+            return 'experiment', ""
+        try:
+            status = self.hw.status()
+        except HardwareUnavailable as e:
+            return 'unavailable', str(e)
+        if not status.get('available'):
+            return 'unavailable', 'hardware init failed: {}'.format(status.get('error'))
+        return 'ready', ""
+
+    def mark_experiment_starting(self):
+        """Вызывается под локом старта до запуска потока эксперимента."""
+        self._experiment_starting = True
 
     def source_power_on(self):
         """Включить высокое напряжение источника.
@@ -57,11 +67,11 @@ class Tomograph:
         на стороне tomograph_server, Redis-прокси возвращается мгновенно
         и не блокирует обработку других запросов.
         """
-        self.hwtomo.source_power_on_async()
+        self.hw.call('source_power_on_async')
 
     def source_power_off(self):
         """Выключить высокое напряжение источника."""
-        self.hwtomo.source.off_high_voltage()
+        self.hw.call('source.off_high_voltage')
 
     def source_wait_for_ready(self, timeout=1800, poll_interval=5):
         """Ожидать готовности рентгеновского источника.
@@ -114,7 +124,7 @@ class Tomograph:
                                         None если статус недоступен.
         """
         try:
-            on = bool(self.hwtomo.source.is_on_high_voltage())
+            on = bool(self.hw.call('source.is_on_high_voltage'))
         except Exception as e:
             # Если источник не отвечает (например, в режиме прогрева),
             # считаем, что HV не включено
@@ -122,7 +132,7 @@ class Tomograph:
             logging.getLogger(__name__).warning(
                 "source_get_state: is_on_high_voltage failed: %s (assuming on=False)", e)
         try:
-            busy = bool(self.hwtomo.source_is_busy())
+            busy = bool(self.hw.call('source_is_busy'))
         except Exception as e:
             # Если источник не отвечает, предполагаем, что он занят (прогревается)
             busy = True
@@ -132,7 +142,7 @@ class Tomograph:
         # Читаем статус прогрева; используем snake_case для единообразия JSON
         warming_status = None
         try:
-            ws = self.hwtomo.source.get_status()['warming status']
+            ws = self.hw.call('source.get_status')['warming status']
             warming_status = {
                 'in_progress':         ws['in progress'],
                 'warming_interrupted': ws['warming interrupted'],
@@ -144,7 +154,10 @@ class Tomograph:
                 "source_get_state: get_status failed: %s (warming_status=None)", e)
 
         # source.mock — флаг заглушки, установленный при инициализации HWSource
-        mocked = bool(getattr(self.hwtomo.source, 'mock', False))
+        try:
+            mocked = bool(self.hw.call('source.mock'))
+        except Exception:
+            mocked = False
         return {'on': on, 'busy': busy, 'mocked': mocked, 'warming_status': warming_status}
 
     def source_set_voltage(self, new_voltage):
@@ -154,7 +167,7 @@ class Tomograph:
         if new_voltage < 2 or 60 < new_voltage:
             raise ModExpError(error='Voltage must have value from 2 to 60!')
 
-        self.hwtomo.source.set_voltage(new_voltage)
+        self.hw.call('source.set_voltage', new_voltage)
 
     def source_set_current(self, new_current):
         if type(new_current) is not float:
@@ -163,20 +176,20 @@ class Tomograph:
         if new_current < 2 or 80 < new_current:
             raise ModExpError(error='Current must have value from 2 to 80!')
 
-        self.hwtomo.source.set_current(new_current)
+        self.hw.call('source.set_current', new_current)
 
     def source_get_voltage(self):
-        return self.hwtomo.source.get_actual_voltage()
+        return self.hw.call('source.get_actual_voltage')
 
     def source_get_current(self):
-        return self.hwtomo.source.get_actual_current()
+        return self.hw.call('source.get_actual_current')
 
     def open_shutter(self, time_=0):
-        self.hwtomo.shutter.open()
+        self.hw.call('shutter.open')
         return self.shutter_status()
 
     def close_shutter(self, time_=0):
-        self.hwtomo.shutter.close()
+        self.hw.call('shutter.close')
         return self.shutter_status()
 
     def shutter_state(self):
@@ -200,7 +213,7 @@ class Tomograph:
         предупреждение и возвращает False — детектор остаётся в legacy-режиме.
         """
         try:
-            self.hwtomo.detector.start_acquisition(exposure_ms / 1.e3, True)
+            self.hw.call('detector.start_acquisition', exposure_ms / 1.e3, True)
             return True
         except Exception as e:
             logging.getLogger(__name__).warning(
@@ -209,7 +222,7 @@ class Tomograph:
 
     def detector_stop_acquisition(self):
         """Остановить постоянный захват (безопасно, если он не был запущен)."""
-        self.hwtomo.detector.stop_acquisition()
+        self.hw.call('detector.stop_acquisition')
 
     def set_x(self, new_x):
         """
@@ -226,7 +239,7 @@ class Tomograph:
 
         # blocking=False: не блокируем Redis-сервер во время движения,
         # чтобы поллинг get_x() со страницы adjustment работал в реальном времени
-        self.hwtomo.horizontal_motor.move_to_position(new_x, blocking=False)
+        self.hw.call('horizontal_motor.move_to_position', new_x, blocking=False)
 
     def set_y(self, new_y):
         """
@@ -262,7 +275,8 @@ class Tomograph:
                 error='Incorrect type! Position type must be int or float, but it is ' + str(type(new_angle)))
 
         new_angle %= 360
-        self.hwtomo.angle_motor.move_to_position_deg(new_angle, blocking=blocking)
+        self.hw.call('angle_motor.move_to_position_deg', new_angle, blocking=blocking,
+                     timeout=RPC_MOVE_TIMEOUT_S if blocking else RPC_TIMEOUT_S)
 
     def get_x(self):
         """
@@ -270,7 +284,7 @@ class Tomograph:
 
         :return: float — абсолютная позиция в шагах.
         """
-        return self.hwtomo.horizontal_motor.get_position()
+        return self.hw.call('horizontal_motor.get_position')
 
     def get_y(self):
         """
@@ -287,13 +301,13 @@ class Tomograph:
 
         :return: float — угол в градусах.
         """
-        return self.hwtomo.angle_motor.get_position_deg()
+        return self.hw.call('angle_motor.get_position_deg')
 
     def reset_to_zero_angle(self):
         """
         Принять текущую угловую позицию за нулевую (home position углового мотора).
         """
-        self.hwtomo.angle_motor.set_zero()
+        self.hw.call('angle_motor.set_zero')
 
     def move_away(self):
         """
@@ -302,31 +316,31 @@ class Tomograph:
         Целевая позиция хранится в HWLinearMotor.move_outside_mm и задаётся
         через конфиг при инициализации томографа.
         """
-        self.hwtomo.horizontal_motor.move_outside()
+        self.hw.call('horizontal_motor.move_outside', timeout=RPC_MOVE_TIMEOUT_S)
         self.object_present = False
 
     def move_back(self):
         """
         Переместить горизонтальный мотор в рабочую позицию (позиция 0 — объект в пучке).
         """
-        self.hwtomo.horizontal_motor.move_to_position(0)
+        self.hw.call('horizontal_motor.move_to_position', 0, timeout=RPC_MOVE_TIMEOUT_S)
         self.object_present = True
 
     def get_detector_chip_temperature(self):
-        return self.hwtomo.detector.get_sensor_temp()
+        return self.hw.call('detector.get_sensor_temp')
 
     def get_detector_hous_temperature(self):
-        return self.hwtomo.detector.get_hous_temp()
+        return self.hw.call('detector.get_hous_temp')
 
     def get_detector_model(self):
         try:
-            return self.hwtomo.detector.get_model()
+            return self.hw.call('detector.get_model')
         except Exception:
             return 'Ximea xiRAY'
 
     def get_detector_pixel_size(self):
         try:
-            return self.hwtomo.detector.get_pixel_size()
+            return self.hw.call('detector.get_pixel_size')
         except Exception:
             return 4.25e-3
 
@@ -356,13 +370,14 @@ class Tomograph:
             else:
                 self.close_shutter()
 
-        raw_image = self.hwtomo.detector.get_frames(exposure / 1.e3)
+        raw_image = self.hw.call('detector.get_frames', exposure / 1.e3,
+                                 timeout=exposure / 1.e3 * 2 + RPC_FRAME_EXTRA_S)
         
         frame_metadata_json = self.get_detector_frame_metadata()
 
         try:
             frame_metadata = json.loads(frame_metadata_json)
-        except TypeError as e:
+        except TypeError:
             raise ModExpError(error='Could not convert frame\'s JSON into dict')
 
         frame_metadata['image_data']['raw_image'] = raw_image
@@ -376,9 +391,9 @@ class Tomograph:
             'model': self.get_detector_model(),
             'pixel_size': self.get_detector_pixel_size(),  # mm
         }
-        exposure = self.hwtomo.detector.get_exposure() * 1e3
-        chip_temp = self.hwtomo.detector.get_sensor_temp()
-        hous_temp = self.hwtomo.detector.get_hous_temp()
+        exposure = self.hw.call('detector.get_exposure') * 1e3
+        chip_temp = self.hw.call('detector.get_sensor_temp')
+        hous_temp = self.hw.call('detector.get_hous_temp')
         
         image_data = {'timestamp': timestamp,
                       'datetime': current_datetime,
@@ -389,14 +404,14 @@ class Tomograph:
                       }         
         object_data = {'present': self.object_present,
                        'angle position': self.get_angle(),
-                       'horizontal position': self.hwtomo.horizontal_motor.get_position(),
+                       'horizontal position': self.hw.call('horizontal_motor.get_position'),
                        'vertical position': self.y_position
                        }
         shutter_state = json.loads(self.shutter_state())
         shutter_data = {'open': shutter_state['state'] == 'OPEN'}
 
-        voltage = self.hwtomo.source.get_actual_voltage()
-        current = self.hwtomo.source.get_actual_current()
+        voltage = self.hw.call('source.get_actual_voltage')
+        current = self.hw.call('source.get_actual_current')
         source_data = {'voltage': voltage,
                        'current': current}
         return json.dumps({'image_data': image_data,
@@ -406,6 +421,7 @@ class Tomograph:
 
     def carry_out_simple_experiment(self, exp_param):
         self.current_experiment = Experiment(_tomograph=self, exp_param=exp_param)
+        self._experiment_starting = False
         exp_id = self.current_experiment.exp_id
         event_for_send = None
         try:
@@ -426,6 +442,7 @@ class Tomograph:
 
     def carry_out_advanced_experiment(self, exp_param):
         self.current_experiment = AdvancedExperiment(_tomograph=self, exp_param=exp_param)
+        self._experiment_starting = False
         exp_id = self.current_experiment.exp_id
         event_for_send = None
         try:

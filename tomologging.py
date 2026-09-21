@@ -22,6 +22,7 @@ class TomoLogger:
 
         self.logger = logging.getLogger(name)
         self.logger.setLevel(TRACE)
+        self.logger.propagate = False  # у корневого логгера свои обработчики (hwrpc.configure_logging)
         formatter = logging.Formatter(_FORMAT)
         for handler in (logging.FileHandler(self.log_path), logging.StreamHandler()):
             handler.setLevel(TRACE)

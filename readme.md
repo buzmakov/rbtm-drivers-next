@@ -16,7 +16,7 @@ rbtm-drivers-next/
 │   └── tests/                   # Тесты оборудования
 ├── experiment/                  # Flask API и логика эксперимента
 ├── tomograph_server.py          # Отдельный процесс работы с железом
-└── redis_proxy.py               # Redis-прокси для межпроцессного взаимодействия
+└── hwrpc.py                     # RPC Flask ↔ tomograph_server через Redis
 ```
 
 ## Запуск
@@ -38,13 +38,19 @@ rbtm-web (Django) ──HTTP──► rbtm-drivers-next (Flask :5001)
                           │                       │
                     Tomograph (Flask)   tomograph_server.py
                           │                       │
-                    RedisProxy ◄──Redis──► HWTomograph (реальное железо)
+                 HardwareClient ◄──Redis──► HardwareServer → HWTomograph (железо)
 ```
 
+`tomograph_server` владеет единственным `HWTomograph`; Flask ничего не создаёт на стороне железа,
+а вызывает методы по имени (`hw.call('source.off_high_voltage')`). Если процесс железа упал
+(например, segfault в xiAPI), Docker перезапускает его, Flask получает `HardwareUnavailable`
+и продолжает работать; `/state` в это время отдаёт `unavailable`. Логи RPC: `logs/hwrpc_server.log`
+(в нём же все `logging.*` драйверов) и `logs/hwrpc_main.log`.
+
 - **`experiment/routes.py`** — Flask Blueprint, HTTP API
-- **`experiment/tomograph.py`** — `Tomograph` класс, проксирует команды через Redis
+- **`experiment/tomograph.py`** — `Tomograph` класс, валидация параметров и вызовы железа через `hwrpc.HardwareClient`
 - **`experiment/experiment.py`** — логика проведения эксперимента (`Experiment`, `AdvancedExperiment`)
-- **`tomograph_server.py`** — отдельный процесс, работает напрямую с `HWTomograph` через `RedisProxyServer`
+- **`tomograph_server.py`** — отдельный процесс, владеет `HWTomograph` и обслуживает очередь `hwrpc.HardwareServer`
 
 ---
 
@@ -223,7 +229,7 @@ total_frames = (
 ### Состояние томографа
 | Метод | URL | Описание |
 |---|---|---|
-| GET | `/tomograph/<n>/state` | Состояние: `ready` / `experiment` / `unavailable` |
+| GET | `/tomograph/<n>/state` | Состояние: `ready` / `experiment` / `unavailable` (сервер железа не отвечает или железо не инициализировалось) |
 
 ### Эксперимент
 | Метод | URL | Описание |
