@@ -9,6 +9,12 @@ CACHE_TTL = 3           # секунды: кэшировать значение 
                         # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
 WARMUP_TIMEOUT = 1800   # максимальное время прогрева — 30 минут
 
+CL_SETTLE_DELAY = 0.5       # с: пауза после CL, пока генератор снимет сообщение
+HV_SETTLE_DELAY = 1.0       # с: пауза после HV:0/HV:1 перед следующей командой
+WARMUP_POLL_INTERVAL = 5    # с: период опроса состояния во время прогрева
+WAIT_TIMEOUT = 10           # с: ожидание включения ВН / стабилизации kV и mA
+WAIT_POLL_INTERVAL = 1      # с: период опроса в _wait_until()
+
 # Коды SR:12, означающие разомкнутую цепь блокировок (руководство §8.5.1).
 # Именно они, а не биты SR:30, сообщают о дверях и аварийном останове.
 INTERLOCK_ERROR_CODES = (
@@ -19,6 +25,37 @@ INTERLOCK_ERROR_CODES = (
     64,  # Door contact 1 open
     65,  # Door contact 2 open
 )
+
+# Единственный белый список «неошибок»: коды SR:12, которыми генератор сообщает
+# о своём состоянии или просит действия оператора. Используется ВЕЗДЕ, где
+# нужно отличить информационное сообщение от настоящего отказа.
+# Значения проверены по руководству §8.5.1 (таблица кодов строки ошибок).
+INFORMATIONAL_CODES = {
+    76:  "Stand-By — генератор в режиме ожидания",
+    106: "Warm-up necessary — требуется прогрев трубки",
+    109: "Warm-up! 0=No — генератор спрашивает, выполнять ли прогрев",
+    118: "Push START button — генератор ждёт START (по RS-232 это HV:1)",
+    119: "Warm-up program completed. ENTER — прогрев завершён, сбросить CL",
+    # 120 в таблице руководства отсутствует (после 119 сразу 121); код
+    # наблюдался прежней версией драйвера во время прогрева как
+    # «Warm-up program running» — оставлен информационным, проверить на железе.
+    120: "Warm-up program running — прогрев идёт (нет в руководстве)",
+    121: "Observe warm-up instructions! ENTER — подтвердить инструкции",
+}
+
+# Коды, при которых нужно выполнить прогрев (подмножество информационных).
+WARMUP_REQUIRED_CODES = (106, 109)
+
+
+class SourceCommunicationError(RuntimeError):
+    """Обмен с генератором не состоялся (таймаут, порт закрыт, мусор в ответе).
+
+    Отличается от «генератор ответил кодом ошибки»: в последнем случае
+    методы возвращают/бросают обычный ``RuntimeError`` с кодом SR:12.
+    Наследуется от ``RuntimeError`` — прежние ``except RuntimeError``
+    у вызывающего кода продолжают работать.
+    """
+
 
 # Реестр долгоживущих экземпляров: один HWSource на порт в процессе.
 # Каждое открытие/закрытие serial-порта дёргает линии DTR/RTS на RS-232
@@ -305,10 +342,13 @@ class HWSource(object):
     def on_high_voltage(self):
         """Включить высокое напряжение.
 
-        Если устройство требует прогрева (коды ошибки 106 или 109), выполняет
+        Если устройство требует прогрева (коды 106 или 109), выполняет
         warmup() и повторяет попытку включения (не более 3 раз).
+        Информационные коды (``INFORMATIONAL_CODES``) отказом не считаются.
 
         Raises:
+            SourceCommunicationError: Если генератор не отвечает — метод
+                НЕ рапортует успех при мёртвом порте.
             RuntimeError: При ошибке от устройства или исчерпании попыток.
         """
         if self.mock:
@@ -318,13 +358,26 @@ class HWSource(object):
             with self._port_lock:
                 self._write_command("HV:1")
                 logging.info('Source.on_high_voltage(): HV:1 sent')
+            # get_error() бросит SourceCommunicationError, если порт мёртв
             error = self.get_error()
             logging.info('Source.on_high_voltage(): error after HV:1 = %r', error)
             if error is None:
                 break
-            if error['code'] in (106, 109):
+            if error['code'] in WARMUP_REQUIRED_CODES:
                 logging.info('Source.on_high_voltage: warm-up required (attempt %d)', attempt + 1)
                 self.warmup(voltage=self.last_voltage_nominal)
+            elif error['code'] in (118, 119, 121):
+                # Генератор ждёт подтверждения (ENTER/START) — по RS-232 это CL,
+                # после чего повторяем HV:1.
+                logging.info("Source.on_high_voltage(): code %d (%s) — sending CL and retrying",
+                             error['code'], INFORMATIONAL_CODES[error['code']])
+                with self._port_lock:
+                    self._write_command("CL")
+                sleep(CL_SETTLE_DELAY)
+            elif error['code'] in INFORMATIONAL_CODES:
+                logging.info("Source.on_high_voltage(): informational code %d (%s)",
+                             error['code'], INFORMATIONAL_CODES[error['code']])
+                break
             else:
                 logging.error("Source.on_high_voltage() error: {}".format(error))
                 raise RuntimeError("Source.on_high_voltage() error: {}".format(error))
@@ -352,10 +405,7 @@ class HWSource(object):
         with self._port_lock:
             self._write_command("HV:0")
             logging.info('Source.off_high_voltage(): HV:0 sent')
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.off_high_voltage() error: {}".format(error))
-            raise RuntimeError("Source.off_high_voltage() error: {}".format(error))
+        self._check_error(self.get_error(), "Source.off_high_voltage()")
 
         self.wait_for_high_voltage_down()
         logging.info('Source.off_high_voltage() finished.')
@@ -423,19 +473,15 @@ class HWSource(object):
 
                 # Читаем ошибку
                 self._write_command("SR:12")
-                err_answer = self.get_data_string()
-                try:
-                    error_code = int(err_answer[1:])
-                except ValueError:
-                    error_code = 0
-                if error_code != 0 and error_code not in (106, 109, 118, 119):
-                    error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown")}
+                error_code = self._parse_error_code(self.get_data_string())
+                if error_code and error_code not in INFORMATIONAL_CODES:
+                    error = {'code': error_code, 'message': self.describe_code(error_code)}
                     logging.error("Source.warmup() WU error: {}".format(error))
                     raise RuntimeError("Source.warmup() WU error: {}".format(error))
                 if error_code == 119:
                     logging.info("Source.warmup(): warm-up already completed (error 119), clearing")
                     self._write_command("CL")
-                    sleep(0.5)
+                    sleep(CL_SETTLE_DELAY)
                     # Не выходим — HV был выключен выше, включится после with
 
                 # HV:1 = программный START прогрева
@@ -443,18 +489,14 @@ class HWSource(object):
                 self._write_command("HV:1")
 
                 self._write_command("SR:12")
-                err_answer = self.get_data_string()
-                try:
-                    error_code = int(err_answer[1:])
-                except ValueError:
-                    error_code = 0
-                if error_code != 0 and error_code not in (106, 109, 118, 120):
-                    error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown")}
+                error_code = self._parse_error_code(self.get_data_string())
+                if error_code and error_code not in INFORMATIONAL_CODES:
+                    error = {'code': error_code, 'message': self.describe_code(error_code)}
                     logging.error("Source.warmup() HV error: {}".format(error))
                     raise RuntimeError("Source.warmup() HV error: {}".format(error))
 
                 # Пауза перед первым опросом
-                sleep(5)
+                sleep(WARMUP_POLL_INTERVAL)
                 logging.info("Source.warmup(): polling status...")
 
                 warmup_start = time()
@@ -491,21 +533,17 @@ class HWSource(object):
                         if not (in_progress or from_kb or from_pc):
                             # Проверяем код ошибки 109
                             self._write_command("SR:12")
-                            err_ans = self.get_data_string()
-                            try:
-                                err_code = int(err_ans[1:])
-                            except ValueError:
-                                err_code = 0
+                            err_code = self._parse_error_code(self.get_data_string())
                             if err_code == 109:
                                 logging.info(
                                     "Source.warmup(): status=no warmup but error 109 persists — waiting")
-                                sleep(5)
+                                sleep(WARMUP_POLL_INTERVAL)
                                 continue
                             # Сбрасываем ошибку 119 "Warm-up program completed. ENTER"
                             if err_code == 119:
                                 logging.info("Source.warmup(): clearing error 119 (warm-up completed)")
                                 self._write_command("CL")
-                                sleep(0.5)
+                                sleep(CL_SETTLE_DELAY)
                             logging.info("Source.warmup(): warm-up finished.")
                             break
                     except Exception as e:
@@ -513,20 +551,16 @@ class HWSource(object):
                             logging.warning(
                                 "Source.warmup(): elapsed=%.0fs status read failed: %s (continuing)",
                                 elapsed, e)
-                    sleep(5)
+                    sleep(WARMUP_POLL_INTERVAL)
 
             # После завершения прогрева включаем HV (прогрев его выключил в начале)
             logging.info("Source.warmup(): turning HV ON after warm-up...")
             self._write_command("HV:1")
-            sleep(1)
+            sleep(HV_SETTLE_DELAY)
             self._write_command("SR:12")
-            err_ans = self.get_data_string()
-            try:
-                err_code = int(err_ans[1:])
-            except ValueError:
-                err_code = 0
-            if err_code != 0 and err_code not in (106, 109, 118, 120):
-                error = {'code': err_code, 'message': self.STATUS_STRINGS.get(err_code, "Unknown")}
+            err_code = self._parse_error_code(self.get_data_string())
+            if err_code and err_code not in INFORMATIONAL_CODES:
+                error = {'code': err_code, 'message': self.describe_code(err_code)}
                 logging.error("Source.warmup() post-warmup HV error: {}".format(error))
                 raise RuntimeError("Source.warmup() post-warmup HV error: {}".format(error))
             logging.info("Source.warmup(): HV ON after warm-up confirmed")
@@ -570,14 +604,16 @@ class HWSource(object):
     def get_status(self):
         """Прочитать статус устройства (слова состояния SR:01 и SR:06).
 
-        При ошибке связи (например, во время прогрева) возвращает
-        "безопасный" статус: HV выключено, прогрев в процессе —
-        и логирует предупреждение.
-        Во время прогрева (_warming_up.is_set()) сразу возвращает
-        безопасный fallback, чтобы не вклиниваться в warmup().
+        Во время прогрева (``_warming_up`` взведён) в порт не лезет и
+        возвращает известное состояние: прогрев идёт, ВН выключено.
 
         Двери/аварийный стоп здесь не возвращаются: в SR:30 их нет,
         они приходят кодами ошибки SR:12 (35, 43, 46, 63–65) — см. get_error().
+
+        Raises:
+            SourceCommunicationError: Если обмен не состоялся. Раньше в этом
+                случае возвращалось ``in progress: True`` — смерть порта
+                выглядела как прогрев.
 
         Returns:
             dict: Словарь со структурой::
@@ -616,9 +652,10 @@ class HWSource(object):
                     'warming from kb': False,
                 },
             }
-        # Во время прогрева не лезем в порт
+        # Во время прогрева не лезем в порт. Это не выдумка: флаг взведён
+        # самим warmup(), значит прогрев действительно идёт, а ВН выключено.
         if self._warming_up.is_set():
-            logging.debug("Source.get_status(): warming up in progress — returning fallback")
+            logging.debug("Source.get_status(): warming up in progress — returning known state")
             return {
                 'power status': {
                     'external pc control': False,
@@ -655,26 +692,14 @@ class HWSource(object):
             }
 
             return res
+        except SourceCommunicationError:
+            raise
         except Exception as e:
-            logging.warning(
-                "Source.get_status(): communication failed: %s "
-                "(returning safe fallback — assume warming up)", e)
-            return {
-                'power status': {
-                    'external pc control': False,
-                    'high voltage on': False,
-                    'cooling system ok': True,
-                    'buffer battery ok': True,
-                    'current ma norm': False,
-                    'voltage kv norm': False,
-                },
-                'warming status': {
-                    'in progress': True,
-                    'warming interrupted': False,
-                    'warming from pc': False,
-                    'warming from kb': False,
-                },
-            }
+            # Сбой связи — это НЕ «идёт прогрев»: раньше умерший порт
+            # выглядел в UI как бесконечный прогрев. Состояние неизвестно,
+            # говорим об этом явно.
+            raise SourceCommunicationError(
+                "Source.get_status(): communication failed: {}".format(e))
 
     # ------------------------------------------------------------------
     # Кэширующий таймер
@@ -719,10 +744,7 @@ class HWSource(object):
         with self._port_lock:
             self._write_command("VN")
             answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_nominal_voltage() error: {}".format(error))
-            raise RuntimeError("Source.get_nominal_voltage() error: {}".format(error))
+        self._check_error(self.get_error(), "Source.get_nominal_voltage()")
 
         self.last_voltage_nominal = self.get_number(answer) / 1000.0
         self.timer_voltage_nominal = time()
@@ -752,7 +774,7 @@ class HWSource(object):
                 self._write_command("VA")
                 answer = self.get_data_string()
             error = self.get_error()
-            if error is not None:
+            if error is not None and error['code'] not in INFORMATIONAL_CODES:
                 logging.warning(
                     "Source.get_actual_voltage() device error: %s (returning 0.0)",
                     error)
@@ -784,10 +806,7 @@ class HWSource(object):
         with self._port_lock:
             self._write_command("CN")
             answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_nominal_current() error: {}".format(error))
-            raise RuntimeError("Source.get_nominal_current() error: {}".format(error))
+        self._check_error(self.get_error(), "Source.get_nominal_current()")
 
         self.last_current_nominal = self.get_number(answer) / 1000.0
         self.timer_current_nominal = time()
@@ -815,7 +834,7 @@ class HWSource(object):
                 self._write_command("CA")
                 answer = self.get_data_string()
             error = self.get_error()
-            if error is not None:
+            if error is not None and error['code'] not in INFORMATIONAL_CODES:
                 logging.warning(
                     "Source.get_actual_current() device error: %s (returning 0.0)",
                     error)
@@ -835,96 +854,64 @@ class HWSource(object):
     def set_voltage(self, voltage):
         """Установить напряжение.
 
+        Команда ``SV:NNNNNN`` — напряжение в вольтах (кВ × 1000), см. пример
+        в руководстве §8.4: 123 кВ → ``SV:123000``.
+
         Args:
             voltage (float): Напряжение в кВ.
 
         Raises:
-            RuntimeError: При ошибке от устройства.
+            RuntimeError: Генератор отверг команду (код SR:12 вне
+                ``INFORMATIONAL_CODES``).
+            SourceCommunicationError: Генератор не отвечает (после попытки
+                прогрева, если он потребовался).
         """
         if self.mock:
             return
         logging.info('Source.set_voltage() starting... voltage=%.3f', voltage)
 
-        # Сбрасываем возможное состояние 109 / 119 перед попыткой
-        try:
-            with self._port_lock:
-                self._write_command("CL")
-                sleep(0.3)
-        except:
-            pass
-
         command = "SV:{}".format(str(int(round(voltage * 1000))).zfill(6))
 
-        # Пытаемся отправить SV. Если таймаут — устройство в состоянии 109 и не отвечает.
-        # В этом случае сразу делаем warmup() и повторяем SV.
-        error = None
+        # На SV генератор ответа не шлёт (руководство §8.2: у SV только
+        # параметр передачи) — сразу читаем код ошибки SR:12.
         try:
-            with self._port_lock:
-                # На SV генератор ответа не шлёт (руководство §8.2: у SV есть
-                # только параметр передачи) — читаем сразу код ошибки.
-                self._write_command(command)
-                self._write_command("SR:12")
-                err_answer = self.get_data_string()
-                try:
-                    error_code = int(err_answer[1:])
-                except ValueError:
-                    error_code = 0
-                if error_code != 0:
-                    error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))}
-        except RuntimeError as e:
-            # Таймаут на get_data_string() — устройство не отвечает, вероятно в состоянии 109
-            logging.warning("Source.set_voltage(): timeout on SV command (device may be in state 109): %s", e)
-            # Сбрасываем возможное состояние 109 перед повторной попыткой
-            try:
-                with self._port_lock:
-                    self._write_command("CL")
-                    sleep(0.5)
-            except:
-                pass
-            error = {'code': 109, 'message': 'Device unresponsive (assumed warm-up required)'}
-
+            error = self._send_and_read_error(command)
+        except SourceCommunicationError as e:
+            # Эвристика по опыту эксплуатации: в состоянии 109 («Warm-up! 0=No»)
+            # генератор молчит и на SR:12. Считаем, что нужен прогрев, но если
+            # молчание повторится после прогрева — ошибка уйдёт наверх.
+            logging.warning(
+                "Source.set_voltage(): no answer to SR:12 after SV (%s); "
+                "assuming warm-up required (code 109)", e)
+            error = {'code': 109, 'message': self.describe_code(109)}
         logging.info('Source.set_voltage(): after SV command, error=%r', error)
+
+        if error is not None and error['code'] in WARMUP_REQUIRED_CODES:
+            logging.info('Source.set_voltage: warm-up required (voltage=%.3f kV)', voltage)
+            # Прогреваем до целевого напряжения и повторяем SV: после прогрева
+            # генератор возвращается в режим ожидания.
+            self.warmup(voltage=voltage)
+            error = self._send_and_read_error(command)
+            logging.info('Source.set_voltage(): after warm-up and retry SV, error=%r', error)
+
+        if error is not None and error['code'] in (118, 119, 121):
+            # Генератор ждёт подтверждения сообщения — снимаем его CL и повторяем.
+            logging.info('Source.set_voltage(): code %d (%s) — CL and retry SV',
+                         error['code'], INFORMATIONAL_CODES[error['code']])
+            with self._port_lock:
+                self._write_command("CL")
+                sleep(CL_SETTLE_DELAY)
+            error = self._send_and_read_error(command)
+            logging.info('Source.set_voltage(): after CL and retry SV, error=%r', error)
+
+        # Остаточная ошибка: раньше этот блок не проверялся и метод рапортовал
+        # успех, обновляя кэш номинала, даже когда SV не принят.
+        if error is not None and error['code'] not in INFORMATIONAL_CODES:
+            logging.error("Source.set_voltage() error: {}".format(error))
+            raise RuntimeError("Source.set_voltage() error: {}".format(error))
         if error is not None:
-            if error['code'] in (106, 109):
-                logging.info('Source.set_voltage: warm-up required (voltage=%.3f kV)', voltage)
-                # Запускаем прогрев до целевого напряжения и ждём завершения
-                self.warmup(voltage=voltage)
-                # После прогрева нужно повторно отправить SV, так как устройство вернулось в режим ожидания
-                try:
-                    with self._port_lock:
-                        self._write_command(command)
-                        self._write_command("SR:12")
-                        err_answer = self.get_data_string()
-                        try:
-                            error_code = int(err_answer[1:])
-                        except ValueError:
-                            error_code = 0
-                        if error_code != 0:
-                            error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))}
-                        else:
-                            error = None
-                except RuntimeError as e:
-                    logging.warning("Source.set_voltage(): timeout on retry SV after warmup: %s", e)
-                    error = {'code': 109, 'message': 'Device unresponsive after warmup'}
-            elif error['code'] == 119:
-                logging.info('Source.set_voltage(): warm-up already completed (error 119), clearing and retrying SV')
-                with self._port_lock:
-                    self._write_command("CL")
-                    sleep(0.3)
-                    self._write_command(command)
-                    self._write_command("SR:12")
-                    err_answer = self.get_data_string()
-                    try:
-                        error_code = int(err_answer[1:])
-                    except ValueError:
-                        error_code = 0
-                    if error_code != 0:
-                        error = {'code': error_code, 'message': self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))}
-                    else:
-                        error = None
-            else:
-                logging.error("Source.set_voltage() error: {}".format(error))
-                raise RuntimeError("Source.set_voltage() error: {}".format(error))
+            logging.info("Source.set_voltage(): informational code %d (%s) — SV accepted",
+                         error['code'], INFORMATIONAL_CODES[error['code']])
 
         # Обновляем кэш номинального напряжения
         self.last_voltage_nominal = voltage
@@ -936,23 +923,30 @@ class HWSource(object):
     def set_current(self, current):
         """Установить ток.
 
+        Команда ``SC:NNNNNN`` — ток в микроамперах (мА × 1000), формат тот же,
+        что у ``SV`` (руководство §8.2, §8.4).
+
         Args:
             current (float): Ток в мА.
 
         Raises:
-            RuntimeError: При ошибке от устройства.
+            RuntimeError: Генератор отверг команду.
+            SourceCommunicationError: Генератор не отвечает.
         """
         if self.mock:
             return
         logging.debug('Source.set_current() starting...')
         command = "SC:{}".format(str(int(round(current * 1000))).zfill(6))
-        with self._port_lock:
-            self._write_command(command)
-        error = self.get_error()
-        if error is not None:
+        error = self._send_and_read_error(command)
+        if error is not None and error['code'] not in INFORMATIONAL_CODES:
             logging.error("Source.set_current() error: {}".format(error))
             raise RuntimeError("Source.set_current() error: {}".format(error))
+        if error is not None:
+            logging.info("Source.set_current(): informational code %d (%s)",
+                         error['code'], INFORMATIONAL_CODES[error['code']])
 
+        self.last_current_nominal = current
+        self.timer_current_nominal = time()
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
 
@@ -980,10 +974,7 @@ class HWSource(object):
         with self._port_lock:
             self._write_command("ID")
             answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_id() error: {}".format(error))
-            raise RuntimeError("Source.get_id() error: {}".format(error))
+        self._check_error(self.get_error(), "Source.get_id()")
 
         self.device_id = answer
         logging.debug('Source.get_id() finished.')
@@ -1009,10 +1000,7 @@ class HWSource(object):
         with self._port_lock:
             self._write_command("XT")
             answer = self.get_data_string()
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.get_tube_name() error: {}".format(error))
-            raise RuntimeError("Source.get_tube_name() error: {}".format(error))
+        self._check_error(self.get_error(), "Source.get_tube_name()")
 
         self.tube_name = answer
         logging.debug('Source.get_tube_name() finished.')
@@ -1026,10 +1014,14 @@ class HWSource(object):
         """Прочитать текущий код ошибки (SR:12).
 
         Returns:
-            dict | None: Словарь ``{'code': int, 'message': str}``
-            или None если ошибок нет.
-            При сбое связи возвращает None и логирует предупреждение
-            (чтобы UI-опрос состояния не падал во время прогрева).
+            dict | None: ``{'code': int, 'message': str}`` если генератор
+            сообщает код, либо None если кода нет (SR:12 = 0).
+
+        Raises:
+            SourceCommunicationError: Если обмен не состоялся (таймаут,
+                закрытый порт, неразбираемый ответ). «Нет ошибки» и
+                «нет связи» — разные исходы: раньше оба давали None,
+                и ``on_high_voltage()`` при мёртвом порте рапортовал успех.
         """
         if self.mock:
             return None
@@ -1037,19 +1029,51 @@ class HWSource(object):
             with self._port_lock:
                 self._write_command("SR:12")
                 answer = self.get_data_string()
-            try:
-                error_code = int(answer[1:])
-            except ValueError:
-                logging.warning("Source.get_error(): cannot parse answer: %r", answer)
-                return None
-
-            if error_code != 0:
-                message = self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))
-                return {'code': error_code, 'message': message}
-            return None
+        except SourceCommunicationError:
+            raise
         except Exception as e:
-            logging.warning("Source.get_error(): communication failed: %s (returning None)", e)
-            return None
+            raise SourceCommunicationError(
+                "Source.get_error(): communication failed: {}".format(e))
+
+        error_code = self._parse_error_code(answer)
+        if error_code:
+            return {'code': error_code, 'message': self.describe_code(error_code)}
+        return None
+
+    @staticmethod
+    def _check_error(error, where):
+        """Бросить RuntimeError, если код SR:12 — отказ, а не информация.
+
+        Единая точка применения ``INFORMATIONAL_CODES``: раньше по коду были
+        разбросаны три разных набора «неошибок», а 76 (Stand-By) везде
+        считался отказом.
+        """
+        if error is None:
+            return
+        if error['code'] in INFORMATIONAL_CODES:
+            logging.info("%s: informational code %d (%s)",
+                         where, error['code'], INFORMATIONAL_CODES[error['code']])
+            return
+        logging.error("%s error: %s", where, error)
+        raise RuntimeError("{} error: {}".format(where, error))
+
+    @classmethod
+    def describe_code(cls, code):
+        """Расшифровка кода SR:12 (текст из руководства или заглушка)."""
+        return cls.STATUS_STRINGS.get(code, "Unknown error code {}".format(code))
+
+    @staticmethod
+    def _parse_error_code(answer):
+        """Разобрать ответ на SR:12 в целый код ошибки.
+
+        Raises:
+            SourceCommunicationError: Ответ не похож на ``*<число>``.
+        """
+        try:
+            return int(answer[1:])
+        except (ValueError, IndexError):
+            raise SourceCommunicationError(
+                "Source: cannot parse SR:12 answer: {!r}".format(answer))
 
     # ------------------------------------------------------------------
     # Вспомогательные методы
@@ -1064,14 +1088,16 @@ class HWSource(object):
             str: Строка ответа без завершающих символов.
 
         Raises:
-            RuntimeError: При таймауте или пустом ответе от устройства.
+            SourceCommunicationError: При таймауте или пустом ответе.
         """
         if self.mock:
             return "*0"
         line = self.serial_port.read_until(b'\r')
         logging.debug("Source.get_data_string(): raw=%r", line)
         if not line:
-            raise RuntimeError("Source.get_data_string(): timeout — no response from device (possibly warming up)")
+            raise SourceCommunicationError(
+                "Source.get_data_string(): timeout — no response from device "
+                "(possibly warming up)")
         answer = line.decode().strip()
         # Проверка: ответ должен начинаться с '*'
         if not answer.startswith('*'):
@@ -1093,6 +1119,28 @@ class HWSource(object):
         self.serial_port.write(full)
         self.serial_port.flush()
         logging.debug("Source._write_command(): sent %r", full)
+
+    def _send_and_read_error(self, command):
+        """Отправить команду без ответа и прочитать код ошибки SR:12.
+
+        Для команд-установок (``SV``, ``SC``, ``HV``, ``CL``…), на которые
+        генератор ответа не шлёт. Обе посылки идут под одним захватом
+        ``_port_lock`` — параллельный опрос не вклинится между ними.
+
+        Returns:
+            dict | None: ``{'code', 'message'}`` или None, если SR:12 = 0.
+
+        Raises:
+            SourceCommunicationError: Ответа на SR:12 нет или он неразбираем.
+        """
+        with self._port_lock:
+            self._write_command(command)
+            self._write_command("SR:12")
+            answer = self.get_data_string()
+        error_code = self._parse_error_code(answer)
+        if error_code:
+            return {'code': error_code, 'message': self.describe_code(error_code)}
+        return None
 
     def _transact(self, command, read_error=True):
         """Отправить команду и вернуть (answer, error) под _port_lock.
@@ -1178,8 +1226,14 @@ class HWSource(object):
 
         res = {}
         for option in options:
-            if option in handlers:
-                res[option] = handlers[option]()
-            else:
+            if option not in handlers:
                 res[option] = {'error': 'Unsupported option: {}'.format(option)}
+                continue
+            # Один недоступный параметр не должен ронять весь снимок состояния:
+            # get_state() вызывается из HWTomograph.get_state() для UI.
+            try:
+                res[option] = handlers[option]()
+            except Exception as e:
+                logging.warning("Source.get_state(): '%s' failed: %s", option, e)
+                res[option] = {'error': '{}: {}'.format(type(e).__name__, e)}
         return res
