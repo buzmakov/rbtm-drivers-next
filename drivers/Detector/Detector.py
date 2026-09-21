@@ -1,29 +1,18 @@
-# import logging
+import atexit
 import concurrent.futures
-import sys
+
 import numpy as np
 
-#check os
 try:
+    # Вендорённые биндинги: drivers/Detector/ximea -> vendor/ximea/api/Python/v3/ximea
     from .ximea import xiapi
 except ImportError:
-    # sys.path.insert(0, r"C:\Users\topo-tomo\workspace\rbtm-drivers-next\vendor\ximea_win\API\Python\v3") #TODO: replace to ximea drivers path
-    sys.path.insert(0, r"c:\XIMEA\API\Python\v3") #TODO: replace to ximea drivers path
+    # Пакет ximea установлен в систему (XIMEA Software Package).
     from ximea import xiapi
 
-import atexit
-
-# from autologging import traced, TRACE
-
-# logging.basicConfig(
-#     level=TRACE, stream=sys.stdout,
-#     format="%(levelname)s:%(filename)s,%(lineno)d:%(name)s.%(funcName)s:%(message)s")
-
-
-from autologging import traced
 from .. import tomo_logger
 
-# @traced(tomo_logger.logger)
+DEFAULT_MODEL = 'Ximea xiRAY'  # если имя устройства не читается
 PIXEL_SIZES = {
     'MH110XC-KK-FA': 9.0e-3,  # pixel size in mm
     'MJ150XR-GP-FA-GO': 4.25e-3,  # pixel size in mm
@@ -108,30 +97,42 @@ class HWDetector(object):
             :func:`set_on_hang`. Сам драйвер процесс не завершает.
         """
         self._on_hang = on_hang
+        self._closed = False
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
             self.cam.set_debug_level("XI_DL_WARNING")
             self.cam.open_device()
-        except xiapi.Xi_error as err:
+        except Exception as err:
             tomo_logger.logger.error("Detector.init() failed " + str(err))
             raise RuntimeError("Detector.init() failed " + str(err))
-
-        atexit.register(self.close)
 
         self.target_temperature = 15.0
         try:
             self.cam.disable_aeag()
-            # self.cam.disable_auto_wb()
             self.cam.set_gain(0.0)
             self.cam.set_cooling("XI_TEMP_CTRL_MODE_AUTO")
             self.cam.set_target_temp(self.target_temperature)
             self.cam.set_imgdataformat("XI_MONO16")
             # TODO: add waiting for cooling
-
-        except xiapi.Xi_error as err:
+        except Exception as err:
+            # Устройство уже открыто: без close_device() камера осталась бы
+            # занятой, и ленивая переинициализация детектора в HWTomograph
+            # получала бы «устройство занято» на каждой попытке.
             tomo_logger.logger.error("Detector.init() failed " + str(err))
+            try:
+                self.cam.close_device()
+            except Exception as close_err:
+                tomo_logger.logger.error(
+                    "Detector.init(): close_device() after failed configuration "
+                    "also failed: %s", str(close_err))
             raise RuntimeError("Detector.init() failed " + str(err))
+
+        # Имя модели читается один раз: от него зависит размер пикселя,
+        # а молчаливый откат на модель по умолчанию давал 4.25 мкм вместо
+        # 9 мкм для MH110XC (ошибка в метаданных всех кадров).
+        self.model = self._read_device_name()
+        self._pixel_size_warned = False
 
         # --- Persistent acquisition state ---
         # Pre-allocate Image once to avoid per-frame memory allocation
@@ -145,6 +146,23 @@ class HWDetector(object):
         # вызывается из одного и того же OS-потока.
         self._capture_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix='ximea-capture')
+
+        atexit.register(self.close)
+
+    def _read_device_name(self):
+        """Прочитать имя модели камеры; при ошибке — ERROR в лог и значение
+        по умолчанию."""
+        try:
+            name = self.cam.get_device_name()
+        except Exception as err:
+            tomo_logger.logger.error(
+                "Detector: не удалось прочитать имя устройства (%s) — "
+                "используется '%s', размер пикселя будет по умолчанию",
+                str(err), DEFAULT_MODEL)
+            return DEFAULT_MODEL
+        if isinstance(name, bytes):
+            name = name.decode('utf-8', errors='replace')
+        return str(name).rstrip('\x00')
 
     # ------------------------------------------------------------------
     # Persistent acquisition API
@@ -164,6 +182,8 @@ class HWDetector(object):
             этом возвращается в известное состояние (триггер выключен,
             захват остановлен).
         """
+        if self._closed:
+            raise RuntimeError("Detector.start_acquisition(): детектор закрыт")
         if self._hung:
             raise DetectorHangError(
                 "Detector: захват завис ранее, требуется перезапуск процесса")
@@ -258,42 +278,57 @@ class HWDetector(object):
     # ------------------------------------------------------------------
 
     def close(self):
-        # Guard against double-close: atexit may call this after an explicit
-        # close() from a pytest fixture or user code. cam.CAM_OPEN is the
-        # authoritative flag set by xiapi.Camera.
-        if not self.cam.CAM_OPEN:
+        """Остановить захват, закрыть устройство, погасить поток захвата.
+
+        Идемпотентен: atexit вызывает close() после явного close() из
+        фикстуры pytest или из ``HWTomograph._release_devices()``.
+        """
+        if self._closed:
             return
+        self._closed = True
         try:
-            if self._acquisition_active:
-                self.cam.stop_acquisition()
-                self._acquisition_active = False
-            self.cam.close_device()
-        except xiapi.Xi_error as err:
+            atexit.unregister(self.close)
+        except Exception:
+            pass
+
+        try:
+            if self._hung:
+                # Поток захвата сидит внутри xiGetImage: stop/close из
+                # главного потока — это гонка, которая роняет процесс.
+                tomo_logger.logger.critical(
+                    "Detector.close(): захват завис, камера не закрывается — "
+                    "требуется перезапуск процесса")
+                return
+            self.stop_acquisition()
+            if self.cam.CAM_OPEN:
+                self.cam.close_device()
+        except Exception as err:
             tomo_logger.logger.error("Detector.close() failed " + str(err))
             raise RuntimeError("Detector.close() failed " + str(err))
+        finally:
+            # wait=False: если поток захвата завис в SDK, ждать его нельзя.
+            self._capture_executor.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # Camera parameters
     # ------------------------------------------------------------------
 
     def get_model(self):
-        try:
-            name = self.cam.get_device_name()
-            if isinstance(name, bytes):
-                return name.decode('utf-8', errors='replace').rstrip('\x00')
-            return str(name)
-        except Exception:
-            return 'Ximea xiRAY'
+        """Имя модели, прочитанное один раз при инициализации."""
+        return self.model
 
     def get_pixel_size(self):
-        """Return physical pixel size in mm based on detector model."""
-        return PIXEL_SIZES.get(self.get_model(), DEFAULT_PIXEL_SIZE)
-
-    def set_gain(self, gain):
-        self.cam.set_gain(gain)
-
-    def get_gain(self):
-        return self.cam.get_gain()
+        """Физический размер пикселя в мм по модели детектора."""
+        pixel_size = PIXEL_SIZES.get(self.model)
+        if pixel_size is None:
+            if not self._pixel_size_warned:
+                self._pixel_size_warned = True
+                tomo_logger.logger.warning(
+                    "Detector: размер пикселя для модели '%s' неизвестен — "
+                    "используется значение по умолчанию %.3e мм",
+                    self.model, DEFAULT_PIXEL_SIZE)
+            return DEFAULT_PIXEL_SIZE
+        return pixel_size
 
     def get_sensor_temp(self):
         return self.cam.get_temp()
@@ -396,6 +431,8 @@ class HWDetector(object):
             :func:`expected_frame_timeout_s`.
         :raises RuntimeError: при любой другой ошибке захвата.
         """
+        if self._closed:
+            raise RuntimeError("Detector.get_frame(): детектор закрыт")
         if self._hung:
             # Поток захвата навсегда внутри xiGetImage — новые попытки
             # только вешают вызывающего ещё на один hard timeout.
