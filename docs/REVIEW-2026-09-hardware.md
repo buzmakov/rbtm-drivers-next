@@ -188,13 +188,31 @@ Docstring `get_frames` (`:280-284`) противоречит `:68-70` про п�
 | Источник | удалены `PN`/`PA`/`SP`/`set_state`/коды 1–32/блок `interlock status` (→ `INTERLOCK_ERROR_CODES` по SR:12); `SourceCommunicationError`/`SourceBusyError`; единый `INFORMATIONAL_CODES`; остаточная ошибка в `set_voltage`; хвост `warmup` под лок, лок только на транзакцию; `_transact`/`_wait_until`; `conftest` не открывает порт при сборе; 19 оффлайн-тестов с `FakeIsovolt` | `fix/xray-source` |
 | Эксперимент | `BaseExperiment`, один `carry_out_experiment`, join отправки последнего кадра до события завершения | `8abe4bd` |
 
-**Проверить на robotom перед слиянием в `develop`** (`restart.sh`, затем короткий эксперимент, затем `pytest -m hardware drivers/tests` при остановленном сервере):
+**Проверено на robotom 21.09.2026** (`tools/verify_robotom.py`, ветка задеплоена через `restart.sh`, коммит `6e9a362`+):
 
-1. Старт: `logs/hwrpc_server.log` — `hardware object ready`; `/tomograph/1/state` → `ready`; при остановленном `rbtm-tomograph-server` → `unavailable`, Flask жив.
-2. Детектор: первый кадр без явного `start_acquisition` (ленивый старт); смена экспозиции между кадрами; `journalctl -k | grep segfault` после эксперимента и превью; `capture_frame` отдаёт uint16 нужной формы.
-3. Моторы: `move_outside()` теперь шлёт `(-4200, -161)` вместо `(-4201, +95)` — парковка в то же место; 359.5° → 0° = короткий ход; полный оборот без ложного `MotorTimeoutError`.
-4. Затвор: порт открыт один раз на всё время жизни объекта; двойной `$KE` только при создании.
-5. Источник: коды 118/119/121 теперь ведут к `CL` + повтору команды; `off_high_voltage()` доходит до генератора во время прогрева (прерывает его); формат `SV:xxxxxx` оставлен как в §8.4.
-6. Логи переименованы: `logs/hwrpc_server.log`, `logs/hwrpc_main.log` (вместо `redis_proxy_*.log`).
+| # | Проверка | Результат | Детали |
+|---|---|---|---|
+| A | сервер поднялся | PASS | `/state` ready, `hardware object ready` в `hwrpc_server.log`, `hwrpc_main.log` есть |
+| B | детектор | PASS | MH110XC-KK-FA, пиксель 0.009 мм |
+| C | источник, связь | PASS | `warming_status` читается, U/I числа |
+| D | затвор | PASS | OPEN → CLOSE |
+| E | угол, кратчайший путь | PASS | 359.5° → 0° за 1.0 с (раньше ~65 с); `get-angle` в [0, 360) |
+| F | парковка | PASS | `move-away` → −4200.63 шага (то же положение, что (−4201, +95)); `move-back` → 0 |
+| G | детектор, превью | PASS | 100/500/500 мс → uint16 (672×1008); захват запущен ×2 (ленивый старт + один перезапуск при смене экспозиции), segfault +0 |
+| H | HTTP-ошибки | PASS | невалидный JSON → 400 `application/json` |
+| I | падение сервера железа | PASS | `docker stop` → `/state` unavailable за 3 с, `/source/state` 503 JSON; после `docker start` ready за 1 с; RestartCount 0 |
+| J | ВН и прогрев | PASS | генератор запросил прогрев (109), прогрев 5 мин до 40 кВ, HV on 40 кВ / 10 мА |
+| K | короткий эксперимент | PASS | advanced 12 кадров (2 dark, 2 empty, 8 data по 45°) за 154 с; 409 на ручной затвор во время съёмки; HV off и затвор CLOSE после; storage `finished=True`, 12 кадров; segfault/рестарты/`SERVER ERROR` +0 |
+| L | коды 118/119/121 | SKIP | нельзя вызвать по требованию; покрыто `TestSourceOffline` |
+| — | `off_high_voltage()` прерывает прогрев | SKIP | прогрев случился один раз, до деплоя исправления `set_voltage` (см. ниже), повторно генератор его не запросил |
+
+Найдено и исправлено в ходе проверки (без неё ушло бы в `develop`):
+
+1. **redis-py 8 ставит сокету таймаут 5 с по умолчанию** — `BLPOP` с таймаутом ≥ 5 с обрывался по сокету, redis-py переподключался и повторял команду: вместо `None` через 15 с приходил `TimeoutError` через ~60 с. Теперь клиенты создаются через `hwrpc.make_redis` с `socket_timeout=None` (`c59bd4b`). `requirements.txt` по-прежнему без пиновки — этот сюрприз пришёл с пересборкой образа.
+2. **`set_voltage()` запускал прогрев синхронно** в единственном потоке сервера железа: 5 минут все RPC отваливались, UI и старт эксперимента получали `HardwareUnavailable`. Так же было в `develop`. Теперь `set_voltage` кэширует номинал, прогрев делает только `on_high_voltage()` в фоновом потоке (`6e9a362`).
+3. **Запас SDK-таймаута детектора 500 мс мал для FireWire**: чтение 11 Мп кадра ≈ 0.6 с, первый кадр после старта ≈ 1.1 с; превью 100 мс падало по ERROR 10. Запас 2 с (`9fccea5`). Формула была та же в `develop`.
+4. **`exposure:direct_update` на MH110XC по FireWire даёт ERROR 107** — смена экспозиции между кадрами теперь один раз перезапускает захват вместо ошибки кадра (`9fccea5`). В `develop` persistent-режим имел ту же проблему, но там экспозиция в эксперименте не менялась.
+5. **`source_get_state` делал четыре RPC подряд** и при недоступном сервере ждал 60 с — теперь первый `HardwareUnavailable` сразу уходит наверх 503 (`e028653`).
+6. **rbtm-storage падает на экспериментах короче 10 кадров** (`hdf5_v2.add_frame_v2`: чанк HDF5 `max(series_length, 10)` больше датасета) — баг хранилища, не томографа; отдельная задача в rbtm-storage.
 
 Не сделано (см. §4 «не делаем без отдельного решения»): двухпоточный сервер, проброс `/dev/isovolt`/`/dev/ximc/*` через udev вместо `ttyACM0..3`, удаление роутов, которые не вызывает rbtm-web, чистка `STATUS_STRINGS` ≥ 33 по руководству (≈30 кодов не найдены), `FLASK_DEBUG=1` в `Dockerfile`, `STORAGE_URI` в конфиг.

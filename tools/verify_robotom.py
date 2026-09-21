@@ -31,6 +31,7 @@ DEFAULT_BASE = 'http://robotom:5001/tomograph/1'
 DEFAULT_SSH = 'ssh -o ConnectTimeout=15 -i ~/.ssh/id_ed25519_mars robotom@robotom'
 REMOTE_DIR = '/home/robotom/workspace/xtomo/rbtm-drivers-next'
 SERVER_CONTAINER = 'rbtm-tomograph-server'
+STORAGE_URI = 'http://10.0.7.153:5006'   # experiment/constants.py
 
 ANGLE_SMALL_STEP_DEG = 0.5
 ANGLE_TOLERANCE_DEG = 0.05
@@ -46,8 +47,10 @@ HV_VOLTAGE_KV = 40.0
 HV_CURRENT_MA = 10.0
 HV_READY_MAX_S = 35 * 60
 WARMUP_INTERRUPT_AFTER_S = 20
-EXPERIMENT = {'advanced': True, 'exposure': 500.0, 'series_length': 2, 'data_total': 3,
-              'data_angle_step': 120.0, 'data_count_per_step': 1, 'empty_period': 50}
+# ≥ 10 кадров: rbtm-storage (hdf5_v2.add_frame_v2) берёт чанк HDF5 max(series_length, 10),
+# и на эксперименте короче 10 кадров падает с 500 (проверено 21.09.2026).
+EXPERIMENT = {'advanced': True, 'exposure': 500.0, 'series_length': 2, 'data_total': 8,
+              'data_angle_step': 45.0, 'data_count_per_step': 1, 'empty_period': 50}
 EXPERIMENT_MAX_S = 10 * 60
 UNAVAILABLE_MAX_S = 15
 READY_AFTER_START_MAX_S = 120
@@ -346,7 +349,13 @@ def check_k_short_experiment(api, remote):
         raise Check('frames {}/{} (expected {})'.format(status.get('frame_num'), status.get('total_frames'), total))
     time.sleep(3)  # событие завершения и логи
     shutdown_ok = remote.count("grep -- 'safe_hardware_shutdown: .* done' \"$(ls -t {}/logs/experiment/log_*.log | head -1)\" | tail -3".format(REMOTE_DIR))
-    finished = remote.exp_log_grep('Experiment was finished successfully')
+    # Событие «finished successfully» уходит в rbtm-storage, а не в лог — читаем флаг оттуда.
+    finished = 0
+    try:
+        docs = requests.post(STORAGE_URI + '/storage/experiments/get', data=json.dumps({'_id': exp_id}), timeout=30).json()
+        finished = int(bool(docs and docs[0].get('finished')))
+    except Exception as e:  # noqa: BLE001
+        print('    storage query failed: {}'.format(e))
     s = api.source()
     if s.get('on'):
         raise Check('HV still on after experiment')
@@ -358,8 +367,8 @@ def check_k_short_experiment(api, remote):
     if seg or rc or errors:
         raise Check('segfault +{} restarts +{} SERVER ERROR +{}'.format(seg, rc, errors))
     if shutdown_ok < 3 or finished < 1:
-        raise Check('logs: safe_hardware_shutdown done ×{}, finished ×{}'.format(shutdown_ok, finished))
-    return '{}: {} кадров за {:.0f} с, 409 на затвор, HV off, затвор CLOSE, segfault/restarts/errors +0'.format(
+        raise Check('safe_hardware_shutdown done ×{} (ожидалось 3), storage finished={}'.format(shutdown_ok, bool(finished)))
+    return '{}: {} кадров за {:.0f} с, 409 на затвор, HV off, затвор CLOSE, storage finished=True, segfault/restarts/errors +0'.format(
         exp_id, total, t)
 
 
