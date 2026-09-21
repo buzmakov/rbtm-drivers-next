@@ -1,7 +1,7 @@
 # pytest --log-cli-level=INFO -s -v test_motors.py
 import logging
 import numpy as np
-from ..Motors.Motor import HWRotaryMotor, HWLinearMotor, print_test_info
+from ..Motors.Motor import HWRotaryMotor, HWLinearMotor
 from ..utils import get_angle_motor_config, get_horizontal_motor_config
 
 # Допустимая погрешность возврата в исходную позицию

@@ -1,19 +1,39 @@
 import logging
 import atexit
+import time
 import numpy as np
+
+from .motor_math import move_timeout_s
+
 try:
-    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, create_string_buffer, \
-        EnumerateFlags, controller_name_t, device_information_t, string_at, edges_settings_t, engine_settings_t, \
-        MicrostepMode, status_t, power_settings_t, move_settings_t
+    from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, \
+        device_information_t, string_at, edges_settings_t, engine_settings_t, \
+        MicrostepMode, status_t, power_settings_t, move_settings_t, MoveState, MvcmdStatus
 except ImportError as err:
-    logging.error("Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the "
-                  "working directory. See developers' documentation for details.")
-    exit()
+    raise ImportError(
+        "Can't import pyximc module. The most probable reason is that you haven't copied pyximc.py to the "
+        "working directory. See developers' documentation for details."
+    ) from err
 except OSError as err:
-    logging.error("Can't load libximc library. Please add all shared libraries to the appropriate places (next to "
-                  "pyximc.py on Windows). It is decribed in detail in developers' documentation. On Linux make sure "
-                  "you installed libximc-dev package.")
-    exit()
+    raise ImportError(
+        "Can't load libximc library. Please add all shared libraries to the appropriate places (next to "
+        "pyximc.py on Windows). It is described in detail in developers' documentation. On Linux make sure "
+        "you installed libximc-dev package."
+    ) from err
+
+
+#: Интервал опроса статуса контроллера при ожидании остановки, с.
+WAIT_FOR_STOP_POLL_INTERVAL_S = 0.05
+#: Таймаут команд, не являющихся перемещением (zero и т.п.), с.
+COMMAND_TIMEOUT_S = 5.0
+
+
+class MotorTimeoutError(RuntimeError):
+    """Мотор не остановился за отведённое время.
+
+    Наследуется от :class:`RuntimeError`, поэтому существующий код,
+    ловящий ``RuntimeError``, продолжает работать.
+    """
 
 
 class BaseMotor(object):
@@ -225,6 +245,60 @@ class BaseMotor(object):
             raise RuntimeError("Motor.get_status() error: {}".format(result))
         return res
 
+    # ─── Waiting for the controller ──────────────────────────────────────────────
+
+    def _check(self, result, what):
+        """Проверить код возврата libximc и бросить RuntimeError при ошибке.
+
+        :param result: int — код возврата функции libximc.
+        :param what: str — имя операции для сообщения об ошибке.
+        :raises RuntimeError: если result != Result.Ok.
+        """
+        if result != Result.Ok:
+            message = "{}.{} error: {}".format(type(self).__name__, what, result)
+            logging.error(message)
+            raise RuntimeError(message)
+
+    def _move_timeout(self, distance_steps):
+        """Оценить таймаут ожидания остановки по длине перемещения и скорости."""
+        return move_timeout_s(distance_steps, self.speed)
+
+    def _wait_for_stop(self, timeout, what='move'):
+        """Дождаться остановки мотора, опрашивая статус контроллера.
+
+        Заменяет ``lib.command_wait_for_stop()``: у неё второй аргумент —
+        интервал опроса, а не таймаут, и ждёт она бесконечно.
+
+        Мотор считается остановившимся, когда сброшены оба признака:
+        ``MoveSts & MOVE_STATE_MOVING`` и ``MvCmdSts & MVCMD_RUNNING``.
+
+        :param timeout: float — предельное время ожидания, с.
+        :param what: str — имя операции для сообщения об ошибке.
+        :raises MotorTimeoutError: если мотор не остановился за timeout.
+        :raises RuntimeError: если опрос статуса завершился с ошибкой.
+        """
+        deadline = time.monotonic() + float(timeout)
+        while True:
+            x_status = status_t()
+            self._check(lib.get_status(self.device_id, byref(x_status)), 'get_status')
+
+            moving = bool(x_status.MoveSts & MoveState.MOVE_STATE_MOVING)
+            running = bool(x_status.MvCmdSts & MvcmdStatus.MVCMD_RUNNING)
+            if not moving and not running:
+                return
+
+            if time.monotonic() >= deadline:
+                message = (
+                    "{}.{}: motor did not stop within {:.1f} s "
+                    "(MoveSts=0x{:02X}, MvCmdSts=0x{:02X}, position={})".format(
+                        type(self).__name__, what, float(timeout),
+                        x_status.MoveSts, x_status.MvCmdSts, x_status.CurPosition)
+                )
+                logging.error(message)
+                raise MotorTimeoutError(message)
+
+            time.sleep(WAIT_FOR_STOP_POLL_INTERVAL_S)
+
     # ─── Position ────────────────────────────────────────────────────────────────
 
     def get_position(self):
@@ -252,20 +326,21 @@ class BaseMotor(object):
         Переместить мотор на абсолютную позицию в шагах.
 
         :param position: int — целая часть позиции в шагах.
-        :param uposition: int — дробная часть позиции в микрошагах [0, 255].
-        :param blocking: bool — если True (по умолчанию), блокировать поток до завершения движения
-                         (command_wait_for_stop). Передавайте False для ручного управления со
-                         страницы юстировки, чтобы Redis-сервер оставался отзывчивым.
+        :param uposition: int — дробная часть позиции в микрошагах [-255, 255]
+                          (знак должен совпадать со знаком position).
+        :param blocking: bool — если True (по умолчанию), ждать остановки мотора
+                         с таймаутом, рассчитанным по расстоянию и скорости.
+                         При False команда только отправляется контроллеру;
+                         вызывающий сам решает, когда и как дождаться остановки.
         :raises RuntimeError: если команда отклонена контроллером.
+        :raises MotorTimeoutError: при blocking=True, если мотор не остановился вовремя.
         """
         logging.debug("Motor.move_to_position() starting...")
-        result = lib.command_move(self.device_id, position, uposition)
-        if not result == Result.Ok:
-            logging.error("Motor.move_to_position() error: {}".format(result))
-            raise RuntimeError("Motor.move_to_position() error: {}".format(result))
+        distance = abs(position + uposition / 256. - self.get_position()) if blocking else 0.
+        self._check(lib.command_move(self.device_id, position, uposition), 'move_to_position')
 
         if blocking:
-            lib.command_wait_for_stop(self.device_id, 10)
+            self._wait_for_stop(self._move_timeout(distance), 'move_to_position')
         logging.debug("Motor.move_to_position() finished.")
 
     def move_by_delta(self, step, ustep=0, blocking=True):
@@ -273,18 +348,18 @@ class BaseMotor(object):
         Переместить мотор на относительное смещение в шагах.
 
         :param step: int — смещение в целых шагах (может быть отрицательным).
-        :param ustep: int — дробная часть смещения в микрошагах [0, 255].
-        :param blocking: bool — если True (по умолчанию), ждать завершения движения.
+        :param ustep: int — дробная часть смещения в микрошагах [-255, 255]
+                      (знак должен совпадать со знаком step).
+        :param blocking: bool — если True (по умолчанию), ждать остановки мотора
+                         с таймаутом, рассчитанным по расстоянию и скорости.
         :raises RuntimeError: если команда отклонена контроллером.
+        :raises MotorTimeoutError: при blocking=True, если мотор не остановился вовремя.
         """
         logging.debug("Motor.move_by_delta() starting...")
-        result = lib.command_movr(self.device_id, step, ustep)
-        if not result == Result.Ok:
-            logging.error("Motor.move_by_delta() error: {}".format(result))
-            raise RuntimeError("Motor.move_by_delta() error: {}".format(result))
+        self._check(lib.command_movr(self.device_id, step, ustep), 'move_by_delta')
 
         if blocking:
-            lib.command_wait_for_stop(self.device_id, 10)
+            self._wait_for_stop(self._move_timeout(step + ustep / 256.), 'move_by_delta')
         logging.debug("Motor.move_by_delta() finished")
 
     # ─── Calibration / configuration ─────────────────────────────────────────────
@@ -293,16 +368,19 @@ class BaseMotor(object):
         """
         Объявить текущую позицию нулём (home position).
 
-        :param blocking: bool — если True (по умолчанию), ждать завершения команды.
+        Команда не двигает мотор: она обнуляет счётчик шагов контроллера,
+        то есть текущая физическая позиция начинает считаться нулевой.
+        Все последующие get_position()/move_to_position() отсчитываются от неё.
+
+        :param blocking: bool — если True (по умолчанию), дождаться, пока
+                         контроллер отработает команду (COMMAND_TIMEOUT_S).
         :raises RuntimeError: если команда отклонена контроллером.
+        :raises MotorTimeoutError: при blocking=True, если контроллер остался занят.
         """
         logging.debug("Motor.set_zero() starting...")
-        result = lib.command_zero(self.device_id)
-        if not result == Result.Ok:
-            logging.error("Motor.set_zero() error: {}".format(result))
-            raise RuntimeError("Motor.set_zero() error: {}".format(result))
+        self._check(lib.command_zero(self.device_id), 'set_zero')
         if blocking:
-            lib.command_wait_for_stop(self.device_id, 10)
+            self._wait_for_stop(COMMAND_TIMEOUT_S, 'set_zero')
         logging.debug("Motor.set_zero() finished")
 
     def set_microstep_mode_256(self):
@@ -582,27 +660,3 @@ class HWLinearMotor(BaseMotor):
 # Старый код импортирует HWMotor — он продолжает работать как HWRotaryMotor.
 # Новый код должен использовать HWRotaryMotor или HWLinearMotor явно.
 HWMotor = HWRotaryMotor
-
-
-def print_test_info():
-    print("Library loaded")
-    sbuf = create_string_buffer(64)
-    lib.ximc_version(sbuf)
-    print("Library version: " + sbuf.raw.decode())
-
-    # This is device search and enumeration with probing. It gives more information about devices.
-    devenum = lib.enumerate_devices(EnumerateFlags.ENUMERATE_PROBE, None)
-    print("Device enum handle: " + repr(devenum))
-    print("Device enum handle type: " + repr(type(devenum)))
-
-    dev_count = lib.get_device_count(devenum)
-    print("Device count: " + repr(dev_count))
-
-    controller_name = controller_name_t()
-    for dev_ind in range(0, dev_count):
-        enum_name = lib.get_device_name(devenum, dev_ind)
-        result = lib.get_enumerate_device_controller_name(
-            devenum, dev_ind, byref(controller_name))
-        if result == Result.Ok:
-            print("Enumerated device #{} name (port name): ".format(
-                dev_ind) + repr(enum_name) + ". Friendly name: " + repr(controller_name.ControllerName) + ".")
