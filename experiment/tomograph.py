@@ -383,7 +383,21 @@ class Tomograph:
     def carry_out_experiment(self, exp_param):
         """Провести эксперимент (в отдельном потоке) и сообщить storage о завершении."""
         cls = AdvancedExperiment if exp_param.get('advanced') else Experiment
-        self.current_experiment = cls(_tomograph=self, exp_param=exp_param)
+        try:
+            self.current_experiment = cls(_tomograph=self, exp_param=exp_param)
+        except Exception as e:
+            # Конструктор упал (например, KeyError в параметрах): без сброса флага
+            # томограф навсегда остался бы в состоянии 'experiment', а /experiment/status
+            # отдавал бы 'pending'.
+            logging.exception("carry_out_experiment: could not create experiment (exp_id=%s)",
+                              exp_param.get('exp_id'))
+            self._experiment_starting = False
+            self._starting_exp_id = None
+            self.last_experiment_status = {
+                'exp_id': str(exp_param.get('exp_id', '')),
+                'error': 'Could not create experiment: {}'.format(e),
+            }
+            return
         self._experiment_starting = False
         self._starting_exp_id = None
         exp_id = self.current_experiment.exp_id
