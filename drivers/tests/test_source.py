@@ -170,6 +170,14 @@ class TestSourceOffline:
             src.set_voltage(40.0)
         assert src.last_voltage_nominal is None
 
+    def test_set_voltage_defers_warmup_to_on_high_voltage(self):
+        """Код 109 («Warm-up! 0=No»): прогрев НЕ запускается синхронно (это блокировало
+        единственный поток сервера железа на 30 мин, 21.09.2026) — только кэш номинала."""
+        src = make_offline_source({'SR:12': [sr12(109)]})
+        src.set_voltage(40.0)
+        assert src.serial_port.commands == ['SV:040000', 'SR:12']   # ни WU, ни HV:0
+        assert src.last_voltage_nominal == 40.0
+
     def test_set_voltage_accepts_informational_code(self):
         """76 (Stand-By) — информационный код, а не отказ."""
         assert 76 in INFORMATIONAL_CODES

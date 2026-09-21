@@ -930,8 +930,10 @@ class HWSource(object):
         Raises:
             RuntimeError: Генератор отверг команду (код SR:12 вне
                 ``INFORMATIONAL_CODES``).
-            SourceCommunicationError: Генератор не отвечает (после попытки
-                прогрева, если он потребовался).
+            SourceCommunicationError: Генератор не отвечает.
+
+        Если генератор требует прогрева (коды 106/109), метод только кэширует
+        номинал и возвращается — прогрев делает :meth:`on_high_voltage`.
         """
         if self.mock:
             return
@@ -955,12 +957,17 @@ class HWSource(object):
         logging.info('Source.set_voltage(): after SV command, error=%r', error)
 
         if error is not None and error['code'] in WARMUP_REQUIRED_CODES:
-            logging.info('Source.set_voltage: warm-up required (voltage=%.3f kV)', voltage)
-            # Прогреваем до целевого напряжения и повторяем SV: после прогрева
-            # генератор возвращается в режим ожидания.
-            self.warmup(voltage=voltage)
-            error = self._send_and_read_error(command)
-            logging.info('Source.set_voltage(): after warm-up and retry SV, error=%r', error)
+            # Прогрев здесь НЕ запускаем: метод вызывается из единственного
+            # потока сервера железа, и синхронный warmup() (до 30 мин) блокировал
+            # все RPC — 21.09.2026 UI и эксперимент получали HardwareUnavailable,
+            # пока генератор грелся. Запоминаем номинал; прогрев до него
+            # выполнит on_high_voltage() (он идёт в фоновом потоке через
+            # HWTomograph.source_power_on_async).
+            logging.warning('Source.set_voltage(): warm-up required (code %d) — deferred to '
+                            'on_high_voltage(); nominal %.3f kV cached', error['code'], voltage)
+            self.last_voltage_nominal = voltage
+            self.timer_voltage_nominal = time()
+            return
 
         if error is not None and error['code'] in (118, 119, 121):
             # Генератор ждёт подтверждения сообщения — снимаем его CL и повторяем.
