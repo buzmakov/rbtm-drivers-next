@@ -4,6 +4,7 @@ import threading
 import time
 import json
 import requests
+from flask import Response
 from io import BytesIO
 import numpy as np
 from scipy.ndimage import median_filter
@@ -35,14 +36,16 @@ class ModExpError(Exception):
                             error=self.error,
                             exception_message=self.exception_message)
 
-    def create_response(self):
+    def create_response(self, status=500):
+        """Flask Response с JSON-телом (не строка — иначе Flask отдаёт её как
+        200 text/html, а не JSON-ошибку с корректным HTTP-статусом)."""
         response_dict = {
             'success': False,
             'exception message': self.exception_message,
             'error': self.error,
             'result': None,
         }
-        return json.dumps(response_dict)
+        return Response(json.dumps(response_dict), status=status, mimetype='application/json')
 
 
 def create_event(event_type, exp_id, MoF, exception_message='', error=''):
