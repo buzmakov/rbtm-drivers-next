@@ -1,5 +1,7 @@
+import datetime
 import threading
 import logging
+import time
 
 from ..XRayShutter import XRayShutter
 from ..XRaySource import XRaySource
@@ -151,6 +153,95 @@ class HWTomograph(object):
     def detector_available(self):
         """True, если детектор открыт (без попытки переоткрыть)."""
         return self._detector is not None
+
+    # ------------------------------------------------------------------
+    # Съёмка кадра
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_read(what, read):
+        """Прочитать одно поле метаданных; при ошибке вернуть None.
+
+        Сбой чтения температуры или напряжения не должен стоить нам кадра:
+        кадр уже снят, а недостающее поле уедет в хранилище как null.
+        """
+        try:
+            return read()
+        except Exception as e:
+            _log.warning('HWTomograph.capture_frame: чтение "%s" не удалось: %s', what, e)
+            return None
+
+    def capture_frame(self, exposure_s):
+        """Снять кадр и собрать его метаданные одним серверным вызовом.
+
+        Заменяет ~10 отдельных RPC на каждый кадр (модель, размер пикселя,
+        экспозиция, две температуры, угол, позиция, затвор, напряжение,
+        ток), каждый из которых шёл через Redis и дёргал реальное
+        устройство. Модель и размер пикселя берутся из кэша драйвера.
+
+        Args:
+            exposure_s: экспозиция в СЕКУНДАХ (в метаданных — в мс, как и
+                раньше, и читается фактическое значение с камеры).
+
+        Returns:
+            tuple ``(image, metadata)``:
+                * ``image`` — ``numpy.ndarray`` uint16;
+                * ``metadata`` — dict той же структуры, что собирал Flask-слой,
+                  без ключей ``object['present']`` и ``object['vertical
+                  position']`` — их добавляет Flask (они его состояние).
+
+        Raises:
+            RuntimeError: если детектор недоступен;
+            DetectorHangError: если захват завис (политика перезапуска —
+                на стороне владельца процесса, см. ``Detector.set_on_hang``).
+        """
+        detector = self.detector
+        image = detector.get_frame(exposure_s)
+
+        current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        timestamp = time.time()
+
+        image_data = {
+            'timestamp': timestamp,
+            'datetime': current_datetime,
+            # мс, фактическое значение с камеры
+            'exposure': self._safe_read(
+                'exposure', lambda: detector.get_exposure() * 1e3),
+            'detector': {
+                # кэшируется в драйвере при инициализации — обращения к камере нет
+                'model': detector.get_model(),
+                'pixel_size': detector.get_pixel_size(),  # mm
+            },
+            'chip_temp': self._safe_read(
+                'chip_temp', lambda: detector.get_sensor_temp()),
+            'hous_temp': self._safe_read(
+                'hous_temp', lambda: detector.get_hous_temp()),
+        }
+        object_data = {
+            'angle position': self._safe_read(
+                'angle position', lambda: self.angle_motor.get_position_deg()),
+            'horizontal position': self._safe_read(
+                'horizontal position', lambda: self.horizontal_motor.get_position()),
+        }
+        # ВНИМАНИЕ: is_open() открывает serial-порт затвора на каждый вызов
+        # (см. XRayShutter._open_port) — кэша состояния у драйвера нет.
+        shutter_data = {
+            'open': self._safe_read('shutter', lambda: self.shutter.is_open()),
+        }
+        source_data = {
+            'voltage': self._safe_read(
+                'voltage', lambda: self.source.get_actual_voltage()),
+            'current': self._safe_read(
+                'current', lambda: self.source.get_actual_current()),
+        }
+
+        metadata = {
+            'image_data': image_data,
+            'object': object_data,
+            'shutter': shutter_data,
+            'X-ray source': source_data,
+        }
+        return image, metadata
 
     @property
     def devices(self):
