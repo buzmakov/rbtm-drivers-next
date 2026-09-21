@@ -1,7 +1,6 @@
 # pytest --log-cli-level=INFO -s -v test_motors.py
 import logging
-import numpy as np
-from ..Motors.Motor import HWRotaryMotor, HWLinearMotor, print_test_info
+from ..Motors.Motor import HWRotaryMotor, HWLinearMotor
 from ..utils import get_angle_motor_config, get_horizontal_motor_config
 
 # Допустимая погрешность возврата в исходную позицию
@@ -22,11 +21,11 @@ def test_angle_motor():
     logging.info("Angle motor config: %s", config)
 
     motor = HWRotaryMotor(config['port'], config['speed'], config['acceleration'],
-                          steps_on_deg=config['step_360'])
+                          steps_on_deg=config['steps_per_deg'])
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
-    assert info.get('error') is None, "get_info() вернул ошибку: {}".format(info)
+    assert info.get('Manufacturer'), "get_info() не вернул производителя: {}".format(info)
 
     status = motor.get_status()
     logging.info("Motor status: %s", status)
@@ -73,7 +72,7 @@ def test_horizontal_motor():
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
-    assert info.get('error') is None, "get_info() вернул ошибку: {}".format(info)
+    assert info.get('Manufacturer'), "get_info() не вернул производителя: {}".format(info)
 
     status = motor.get_status()
     logging.info("Motor status: %s", status)

@@ -16,7 +16,7 @@
 - Команды в формате `$KE,...\r\n`
 - Ответы начинаются с `#`, заканчиваются `\r\n`
 - При синтаксической ошибке возвращается `#ERR`
-- Таймаут ответа: **5 секунд**
+- Таймаут ответа: **5 секунд** (`SERIAL_TIMEOUT`), таймаут записи — **5 секунд** (`SERIAL_WRITE_TIMEOUT`)
 
 Состояние заслонки:
 
@@ -47,7 +47,17 @@ config = get_shutter_config()
 shutter = HWShutter(config['port'], config['relay_number'])
 ```
 
-При инициализации выполняется проверка связи с модулем (`check_module`). На первый вызов после подачи питания модуль всегда возвращает `#ERR`, поэтому команда отправляется дважды.
+Порт открывается **один раз** в `__init__` и живёт вместе с объектом: каждое
+открытие CDC-ACM дёргает линию DTR модуля, а раньше порт открывался и закрывался
+на каждую команду (2-4 раза за одно переключение состояния). Освобождается порт
+явным вызовом `release()` (синоним `close_port()`); `HWTomograph._release_devices()`
+делает это сам. Доступ к порту сериализован внутренним локом.
+
+При инициализации выполняется проверка связи с модулем (`check_module`). На
+первый вызов после подачи питания модуль возвращает `#ERR`, поэтому `$KE`
+отправляется дважды — этот приём изолирован в методе `_handshake()` и выполняется
+один раз за время жизни объекта. Если модуль не ответил `#OK`, `__init__`
+закрывает порт и бросает `RuntimeError`.
 
 ### Методы
 
@@ -61,6 +71,8 @@ shutter = HWShutter(config['port'], config['relay_number'])
 | `get_all_relay_states()` | `dict` | Состояния всех 4 реле: `{1: bool, 2: bool, 3: bool, 4: bool}` |
 | `read_adc(channel)` | `dict` | АЦП-канал: `{'raw': int, 'voltage_v': float}` |
 | `reset()` | — | Сброс модуля в начальное состояние (закрывает заслонку!) |
+| `release()` / `close_port()` | — | Освободить serial-порт (положение заслонки не меняется) |
+| `is_port_open()` | `bool` | Открыт ли ещё порт модуля |
 
 > `get_firmware_version()` доступен начиная со 2-й аппаратной версии Ke-USB24R. На старых модулях выбрасывает `RuntimeError`.
 
@@ -68,40 +80,50 @@ shutter = HWShutter(config['port'], config['relay_number'])
 
 | Метод | Описание |
 |---|---|
-| `open()` | Открыть заслонку (включить реле) |
-| `close()` | Закрыть заслонку (выключить реле) |
+| `open_shutter()` | Открыть заслонку (включить реле) |
+| `close_shutter()` | Закрыть заслонку (выключить реле) |
 | `is_open()` | `True` если заслонка открыта |
 
-#### Интерфейс get_state / set_state
+> **Переименование.** Раньше эти методы назывались `open()` и `close()`, из-за
+> чего `close()` у заслонки закрывал заслонку, а у всех остальных драйверов —
+> освобождал ресурс, и `HWTomograph._release_devices()` молча обходил заслонку.
+> Старые имена оставлены устаревшими синонимами: они работают, но один раз за
+> процесс выдают `DeprecationWarning` (и строку `WARNING` в лог, так как
+> `DeprecationWarning` по умолчанию скрыт). После их удаления `close()` станет
+> освобождать порт, как сейчас `release()`.
+
+#### Интерфейс get_state
 
 ```python
-# Чтение состояния
-shutter.get_state()                        # {'is_open': True}
-shutter.get_state('is_closed')             # {'is_closed': False}
+shutter.get_state()                         # {'is_open': True}
+shutter.get_state('is_closed')              # {'is_closed': False}
 shutter.get_state(['is_open', 'is_closed']) # {'is_open': True, 'is_closed': False}
-
-# Запись состояния
-result = shutter.set_state({'is_open': True})
-# → {'requested_state': {'is_open': True}, 'result': {'is_open': None}}
 ```
 
-Допустимые ключи `get_state()`: `is_open`, `is_closed`.  
-Допустимые ключи `set_state()`: `is_open` (значение `bool`).
+Допустимые ключи (`HWShutter.STATE_KEYS`): `is_open`, `is_closed`.
+Для неизвестного ключа значение — `{'error': 'Unsupported option'}`.
+
+`set_state()` удалён: в проде он не вызывался (`HWTomograph.set_state` —
+заглушка `pass`), использовался только тестом. Заслонкой управляют напрямую
+через `open_shutter()` / `close_shutter()`.
 
 ### Пример полного цикла
 
 ```python
-shutter.close()
+from time import sleep
+
+shutter.close_shutter()
 assert not shutter.is_open()
 
-shutter.open()
+shutter.open_shutter()
 assert shutter.is_open()
 
-from time import sleep
 sleep(0.5)
 
-shutter.close()
+shutter.close_shutter()
 assert not shutter.is_open()
+
+shutter.release()           # порт свободен, заслонка осталась закрытой
 ```
 
 ### Чтение АЦП
