@@ -1,4 +1,3 @@
-import datetime
 import logging
 import time
 import json
@@ -7,7 +6,7 @@ import redis
 
 from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
-from hwrpc import HardwareClient, HardwareUnavailable
+from hwrpc import HardwareClient, HardwareError, HardwareUnavailable
 
 from autologging import traced
 from . import tomo_logger
@@ -17,7 +16,11 @@ from . import tomo_logger
 # от экспозиции (см. get_frame).
 RPC_TIMEOUT_S = 15
 RPC_MOVE_TIMEOUT_S = 120
+# Таймаут кадра = 2·экспозиция + RPC_FRAME_EXTRA_S; должен быть больше
+# Detector.expected_frame_timeout_s (1.5·экспозиция + 15.5 с) — иначе клиент
+# отвалится раньше, чем драйвер сообщит о зависании.
 RPC_FRAME_EXTRA_S = 30
+MAX_EXPOSURE_MS = 60000.0
 
 
 @traced(tomo_logger.logger)
@@ -202,23 +205,19 @@ class Tomograph:
     def detector_start_acquisition(self, exposure_ms):
         """Запустить постоянный захват на весь эксперимент (software trigger).
 
-        Без этого каждый кадр делает xiStartAcquisition + xiStopAcquisition.
-        В libm3api V4.27.21 xiStopAcquisition помечает объект таймаута в
-        контексте камеры значением -1, а рабочий поток mm_WorkerThread
-        читает его без проверки — гонка, которая роняет tomograph_server
-        (segfault at 0x77 в libm3api.so.2, 37 раз с 01.2025). Один старт и
-        одна остановка на эксперимент вместо сотен сводят окно гонки к минимуму.
+        Один xiStartAcquisition на эксперимент вместо старт/стоп на каждый кадр —
+        обход гонки в libm3api (см. drivers/Detector/README.md). Драйвер сам
+        поднимет захват лениво при первом кадре, но явный старт даёт понятную
+        ошибку до начала съёмки.
 
-        Возвращает True, если режим включён; при ошибке камеры пишет
-        предупреждение и возвращает False — детектор остаётся в legacy-режиме.
+        Raises:
+            ModExpError: если камера не смогла начать захват.
         """
         try:
-            self.hw.call('detector.start_acquisition', exposure_ms / 1.e3, True)
-            return True
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                'detector_start_acquisition failed: %s (staying in legacy per-frame mode)', e)
-            return False
+            self.hw.call('detector.start_acquisition', exposure_ms / 1.e3)
+        except HardwareError as e:
+            raise ModExpError(error='Detector could not start acquisition',
+                              exception_message=e.message)
 
     def detector_stop_acquisition(self):
         """Остановить постоянный захват (безопасно, если он не был запущен)."""
@@ -333,91 +332,44 @@ class Tomograph:
         return self.hw.call('detector.get_hous_temp')
 
     def get_detector_model(self):
-        try:
-            return self.hw.call('detector.get_model')
-        except Exception:
-            return 'Ximea xiRAY'
+        """Модель камеры (кэшируется драйвером при инициализации)."""
+        return self.hw.call('detector.get_model')
 
     def get_detector_pixel_size(self):
-        try:
-            return self.hw.call('detector.get_pixel_size')
-        except Exception:
-            return 4.25e-3
+        """Размер пикселя, мм (по модели; при неизвестной модели драйвер пишет WARNING)."""
+        return self.hw.call('detector.get_pixel_size')
 
-    def get_frame(self, exposure: float, with_open_shutter=None, send_to_webpage=False):
-        """
-        Сделать один кадр детектором.
+    def get_frame(self, exposure, with_open_shutter=None):
+        """Снять один кадр детектором.
 
-        :param exposure: float — выдержка в миллисекундах.
-        :param with_open_shutter: bool | None —
-               True  — открыть заслонку перед съёмкой (светлый кадр),
-               False — закрыть заслонку перед съёмкой (тёмный кадр),
-               None  — не менять состояние заслонки.
-        :param send_to_webpage: bool — зарезервирован, в текущей реализации не используется.
-        :return: dict с ключами image_data, object, shutter, X-ray source и
-                 дополнительным полем image_data['raw_image'] (numpy array).
-        :raises ModExpError: при неверном типе параметра или ошибке декодирования метаданных.
+        :param exposure: выдержка в миллисекундах.
+        :param with_open_shutter: True — открыть заслонку перед съёмкой,
+               False — закрыть, None — не трогать.
+        :return: dict с ключами image_data (в т.ч. raw_image — numpy array),
+                 object, shutter, 'X-ray source'.
+        :raises ModExpError: при неверном типе параметра.
         """
         if type(exposure) not in (int, float):
             raise ModExpError(error='Incorrect type! Exposure type must be int, but it is ' + str(type(exposure)))
+        if exposure < 0.1 or MAX_EXPOSURE_MS < exposure:
+            raise ModExpError(error='Exposure must have value from 0.1 to {} ms (given {})'.format(
+                MAX_EXPOSURE_MS, exposure))
 
-        # if exposure < 0.1 or 16000 < exposure:
-        #     raise ModExpError(error=('Exposure must have value from 0.1 to 16000 (given is %.1f )' % exposure))
-        
         if with_open_shutter is not None:
             if with_open_shutter:
                 self.open_shutter()
             else:
                 self.close_shutter()
 
-        raw_image = self.hw.call('detector.get_frames', exposure / 1.e3,
-                                 timeout=exposure / 1.e3 * 2 + RPC_FRAME_EXTRA_S)
-        
-        frame_metadata_json = self.get_detector_frame_metadata()
-
-        try:
-            frame_metadata = json.loads(frame_metadata_json)
-        except TypeError:
-            raise ModExpError(error='Could not convert frame\'s JSON into dict')
-
-        frame_metadata['image_data']['raw_image'] = raw_image
-        raw_image_with_metadata = frame_metadata
-        return raw_image_with_metadata
-
-    def get_detector_frame_metadata(self):
-        current_datetime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        timestamp = time.time()
-        detector_data = {
-            'model': self.get_detector_model(),
-            'pixel_size': self.get_detector_pixel_size(),  # mm
-        }
-        exposure = self.hw.call('detector.get_exposure') * 1e3
-        chip_temp = self.hw.call('detector.get_sensor_temp')
-        hous_temp = self.hw.call('detector.get_hous_temp')
-        
-        image_data = {'timestamp': timestamp,
-                      'datetime': current_datetime,
-                      'exposure': exposure,
-                      'detector': detector_data,
-                      'chip_temp': chip_temp,
-                      'hous_temp': hous_temp
-                      }         
-        object_data = {'present': self.object_present,
-                       'angle position': self.get_angle(),
-                       'horizontal position': self.hw.call('horizontal_motor.get_position'),
-                       'vertical position': self.y_position
-                       }
-        shutter_state = json.loads(self.shutter_state())
-        shutter_data = {'open': shutter_state['state'] == 'OPEN'}
-
-        voltage = self.hw.call('source.get_actual_voltage')
-        current = self.hw.call('source.get_actual_current')
-        source_data = {'voltage': voltage,
-                       'current': current}
-        return json.dumps({'image_data': image_data,
-                           'object': object_data,
-                           'shutter': shutter_data,
-                           'X-ray source': source_data})
+        exposure_s = exposure / 1.e3
+        # Один серверный вызов: кадр + все метаданные (см. HWTomograph.capture_frame).
+        raw_image, frame = self.hw.call('capture_frame', exposure_s,
+                                        timeout=exposure_s * 2 + RPC_FRAME_EXTRA_S)
+        # Состояние, которое знает только Flask-сторона
+        frame['object']['present'] = self.object_present
+        frame['object']['vertical position'] = self.y_position
+        frame['image_data']['raw_image'] = raw_image
+        return frame
 
     def carry_out_simple_experiment(self, exp_param):
         self.current_experiment = Experiment(_tomograph=self, exp_param=exp_param)

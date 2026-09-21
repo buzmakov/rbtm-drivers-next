@@ -6,6 +6,7 @@
 HardwareUnavailable и не упадёт.
 """
 import logging
+import os
 import sys
 
 import redis
@@ -22,6 +23,18 @@ def main():
 
     # Импорт после настройки логирования: драйверы пишут в корневой логгер при импорте.
     from drivers.Tomograph.Tomograph import HWTomograph
+    from drivers.Detector import Detector
+
+    def on_detector_hang(exc):
+        # Поток захвата навсегда остался внутри xiGetImage — процесс уже не
+        # спасти. Сбрасываем логи и выходим; Docker перезапустит контейнер,
+        # Flask получит HardwareUnavailable и выключит источник/затвор
+        # через safe_hardware_shutdown после рестарта сервера.
+        log.critical('detector hang: %s — exiting for container restart', exc)
+        logging.shutdown()
+        os._exit(1)
+
+    Detector.set_on_hang(on_detector_hang)
 
     server = HardwareServer(factory=HWTomograph,
                             redis_client=redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0))

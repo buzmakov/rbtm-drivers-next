@@ -659,8 +659,8 @@ def check_and_prepare_exp_parameters(exp_param):
 
         if not isinstance(exp_param['exposure'], (int, float)):
             return False, "'exposure' must be a number"
-        if exp_param['exposure'] < 0.1:
-            return False, "'exposure' must be >= 0.1 ms"
+        if not 0.1 <= exp_param['exposure'] <= tomograph.MAX_EXPOSURE_MS:
+            return False, "'exposure' must be within 0.1 .. {} ms".format(tomograph.MAX_EXPOSURE_MS)
 
         if not isinstance(exp_param['series_length'], int):
             return False, "'series_length' must be an integer"
@@ -716,12 +716,9 @@ def check_and_prepare_exp_parameters(exp_param):
             return False, 'Incorrect format in \'DATA\' parameters'
 
         # TO DELETE AFTER WEB-PAGE OF ADJUSTMENT START CHECK PARAMETERS
-        if exp_param['DARK']['exposure'] < 0.1:
-            return False, 'Bad parameters in \'DARK\' parameters'
-        if exp_param['EMPTY']['exposure'] < 0.1:
-            return False, 'Bad parameters in \'EMPTY\' parameters'
-        if exp_param['DATA']['exposure'] < 0.1:
-            return False, 'Bad parameters in \'DATA\' parameters'
+        for kind in ('DARK', 'EMPTY', 'DATA'):
+            if not 0.1 <= exp_param[kind]['exposure'] <= tomograph.MAX_EXPOSURE_MS:
+                return False, "'{}' exposure must be within 0.1 .. {} ms".format(kind, tomograph.MAX_EXPOSURE_MS)
 
     # we don't multiply and round  exp_param['DATA']['angle step'] here, we will do it during experiment,
     # because it will be more accurate this way
