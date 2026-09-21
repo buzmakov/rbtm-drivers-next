@@ -285,6 +285,7 @@ total_frames = (
     "current_mode":  "data",
     "current_angle": 51.84,
     "elapsed_sec":   320.5,
+    "last_frame_at": 1758480123.4,
     "timeline": [
       {"mode": "dark",       "count": 10},
       {"mode": "empty",      "count": 10},

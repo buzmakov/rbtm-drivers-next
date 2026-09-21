@@ -396,6 +396,7 @@ def experiment_status(tomo_num):
             'current_mode': 'none',
             'current_angle': 0.0,
             'elapsed_sec': 0.0,
+            'last_frame_at': None,
             'timeline': [],
         })
 
@@ -415,6 +416,7 @@ def experiment_status(tomo_num):
         'current_mode': status.get('current_mode', 'unknown'),
         'current_angle': status.get('current_angle', 0.0),
         'elapsed_sec': elapsed_sec,
+        'last_frame_at': status.get('last_frame_at'),
         'timeline': status.get('timeline', []),
     })
 
