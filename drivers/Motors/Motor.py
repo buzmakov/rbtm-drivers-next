@@ -1,9 +1,8 @@
 import logging
 import atexit
 import time
-import numpy as np
 
-from .motor_math import move_timeout_s
+from .motor_math import move_timeout_s, to_steps, from_steps
 
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, \
@@ -310,12 +309,8 @@ class BaseMotor(object):
         """
         logging.debug("Motor.get_position() starting...")
         x_pos = get_position_t()
-        result = lib.get_position(self.device_id, byref(x_pos))
-        if result == Result.Ok:
-            res = x_pos.Position + x_pos.uPosition / 256.
-        else:
-            logging.error("Motor.get_position() error: {}".format(result))
-            raise RuntimeError("Motor.get_position() error: {}".format(result))
+        self._check(lib.get_position(self.device_id, byref(x_pos)), 'get_position')
+        res = from_steps(x_pos.Position, x_pos.uPosition)
         logging.debug("Motor.get_position() finished.")
         return res
 
@@ -336,7 +331,7 @@ class BaseMotor(object):
         :raises MotorTimeoutError: при blocking=True, если мотор не остановился вовремя.
         """
         logging.debug("Motor.move_to_position() starting...")
-        distance = abs(position + uposition / 256. - self.get_position()) if blocking else 0.
+        distance = abs(from_steps(position, uposition) - self.get_position()) if blocking else 0.
         self._check(lib.command_move(self.device_id, position, uposition), 'move_to_position')
 
         if blocking:
@@ -359,7 +354,7 @@ class BaseMotor(object):
         self._check(lib.command_movr(self.device_id, step, ustep), 'move_by_delta')
 
         if blocking:
-            self._wait_for_stop(self._move_timeout(step + ustep / 256.), 'move_by_delta')
+            self._wait_for_stop(self._move_timeout(from_steps(step, ustep)), 'move_by_delta')
         logging.debug("Motor.move_by_delta() finished")
 
     # ─── Calibration / configuration ─────────────────────────────────────────────
@@ -430,6 +425,12 @@ class HWRotaryMotor(BaseMotor):
         self.steps_on_deg = float(steps_on_deg)
         super().__init__(device_name, speed, acceleration)
 
+    # ─── Internal helpers ────────────────────────────────────────────────────────
+
+    def _deg_to_steps(self, deg):
+        """Перевести градусы в (шаги, микрошаги) — единственное место перевода."""
+        return to_steps(float(deg) * self.steps_on_deg)
+
     # ─── Position ────────────────────────────────────────────────────────────────
 
     def get_position_deg(self):
@@ -457,9 +458,7 @@ class HWRotaryMotor(BaseMotor):
         :raises RuntimeError: если команда отклонена контроллером.
         """
         logging.debug("HWRotaryMotor.move_to_position_deg() starting...")
-        total = position * self.steps_on_deg
-        steps = int(np.floor(total))
-        usteps = int((total - steps) * 256)  # [0, 255]
+        steps, usteps = self._deg_to_steps(position)
         self.move_to_position(steps, usteps, blocking=blocking)
         logging.debug("HWRotaryMotor.move_to_position_deg() finished.")
 
@@ -472,9 +471,7 @@ class HWRotaryMotor(BaseMotor):
         :raises RuntimeError: если команда отклонена контроллером.
         """
         logging.debug("HWRotaryMotor.move_by_delta_deg() starting...")
-        total = position * self.steps_on_deg
-        steps = int(np.floor(total))
-        usteps = int((total - steps) * 256)  # [0, 255]
+        steps, usteps = self._deg_to_steps(position)
         self.move_by_delta(steps, usteps, blocking=blocking)
         logging.debug("HWRotaryMotor.move_by_delta_deg() finished.")
 
@@ -551,15 +548,16 @@ class HWLinearMotor(BaseMotor):
 
     def _mm_to_steps(self, mm):
         """
-        Перевести миллиметры в шаги и микрошаги.
+        Перевести миллиметры в шаги и микрошаги — единственное место перевода.
 
         :param mm: float — расстояние в миллиметрах.
-        :return: tuple (steps: int, usteps: int) — целая часть в шагах и дробная в микрошагах [0, 255].
+        :return: tuple (steps: int, usteps: int) — знаки частей совпадают, |usteps| <= 255.
         """
-        total = mm * self.steps_per_mm
-        steps = int(np.floor(total))
-        usteps = int((total - steps) * 256)  # [0, 255]
-        return steps, usteps
+        return to_steps(float(mm) * self.steps_per_mm)
+
+    def _steps_to_mm(self, steps):
+        """Перевести (дробные) шаги в миллиметры — обратная операция к _mm_to_steps."""
+        return float(steps) / self.steps_per_mm
 
     # ─── Position ────────────────────────────────────────────────────────────────
 
@@ -567,11 +565,14 @@ class HWLinearMotor(BaseMotor):
         """
         Получить текущую абсолютную позицию мотора в миллиметрах.
 
+        Тонкая обёртка над :meth:`get_position` (шаги) — основной единицей
+        публичного API остаются шаги, как их использует Flask-слой.
+
         :return: float — позиция в мм.
         :raises RuntimeError: если запрос к контроллеру завершился с ошибкой.
         """
         logging.debug("HWLinearMotor.get_position_mm() starting...")
-        res = self.get_position() / self.steps_per_mm
+        res = self._steps_to_mm(self.get_position())
         logging.debug("HWLinearMotor.get_position_mm() finished.")
         return res
 
@@ -607,8 +608,10 @@ class HWLinearMotor(BaseMotor):
         """
         Переместить мотор в позицию парковки объекта (вынос из рентгеновского пучка).
 
-        Целевая позиция задаётся параметром move_outside_mm при создании объекта
-        и хранится в self.move_outside_mm.
+        Целевая позиция задаётся в конфиге в миллиметрах (move_outside_mm) и
+        переводится в шаги через тот же _mm_to_steps, что и остальной мм-слой.
+        Возврат в пучок выполняет прод через move_to_position(0) — в шагах,
+        то есть обе операции идут по одной шкале контроллера.
 
         :param blocking: bool — если True (по умолчанию), ждать завершения движения.
         :raises RuntimeError: если команда отклонена контроллером.
