@@ -21,7 +21,7 @@ def test_angle_motor():
     logging.info("Angle motor config: %s", config)
 
     motor = HWRotaryMotor(config['port'], config['speed'], config['acceleration'],
-                          steps_on_deg=config['step_360'])
+                          steps_on_deg=config['steps_per_deg'])
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)

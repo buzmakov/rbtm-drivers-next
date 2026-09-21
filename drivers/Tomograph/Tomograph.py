@@ -87,7 +87,7 @@ class HWTomograph(object):
                 angle_motor_config['port'],
                 angle_motor_config['speed'],
                 angle_motor_config['acceleration'],
-                steps_on_deg=angle_motor_config['step_360'],
+                steps_on_deg=angle_motor_config['steps_per_deg'],
             )
         except Exception as e:
             _log.error('HWTomograph.__init__ failed: %s - releasing opened devices', e)
