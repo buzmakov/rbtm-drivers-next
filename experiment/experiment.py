@@ -566,22 +566,22 @@ def check_and_prepare_exp_parameters(exp_param):
                 type(exp_param['DATA']) is dict)):
             return False, 'Incorrect format4'
 
-        if not ('count' in exp_param['DARK'].keys()) and ('exposure' in exp_param['DARK'].keys()):
+        if not ('count' in exp_param['DARK'].keys() and 'exposure' in exp_param['DARK'].keys()):
             return False, 'Incorrect format in \'DARK\' parameters'
         if not ((type(exp_param['DARK']['count']) is int) and (type(exp_param['DARK']['exposure']) is float)):
             return False, 'Incorrect format in \'DARK\' parameters'
 
-        if not ('count' in exp_param['EMPTY'].keys()) and ('exposure' in exp_param['EMPTY'].keys()):
+        if not ('count' in exp_param['EMPTY'].keys() and 'exposure' in exp_param['EMPTY'].keys()):
             return False, 'Incorrect format in \'EMPTY\' parameters'
         if not ((type(exp_param['EMPTY']['count']) is int) and (type(exp_param['EMPTY']['exposure']) is float)):
             return False, 'Incorrect format in \'EMPTY\' parameters'
 
-        if not ('step count' in exp_param['DATA'].keys()) and ('exposure' in exp_param['DATA'].keys()):
+        if not ('step count' in exp_param['DATA'].keys() and 'exposure' in exp_param['DATA'].keys()):
             return False, 'Incorrect format in \'DATA\' parameters'
         if not ((type(exp_param['DATA']['step count']) is int) and (type(exp_param['DATA']['exposure']) is float)):
             return False, 'Incorrect format in \'DATA\' parameters'
 
-        if not ('angle step' in exp_param['DATA'].keys()) and ('count per step' in exp_param['DATA'].keys()):
+        if not ('angle step' in exp_param['DATA'].keys() and 'count per step' in exp_param['DATA'].keys()):
             return False, 'Incorrect format in \'DATA\' parameters'
         if not (
                 (type(exp_param['DATA']['angle step']) is float) and (
