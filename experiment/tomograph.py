@@ -126,6 +126,10 @@ class Tomograph:
         """
         try:
             on = bool(self.hw.call('source.is_on_high_voltage'))
+        except HardwareUnavailable:
+            # Сервер железа не отвечает — дальше опрашивать бессмысленно
+            # (каждый вызов ждал бы свой таймаут); наверх уйдёт 503.
+            raise
         except Exception as e:
             # Если источник не отвечает (например, в режиме прогрева),
             # считаем, что HV не включено

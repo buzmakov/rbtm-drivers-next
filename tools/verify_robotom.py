@@ -281,7 +281,7 @@ def check_i_server_restart(api, remote):
     remote.run('docker stop {}'.format(SERVER_CONTAINER), timeout=90)
     try:
         t_unavail = wait_until(lambda: api.result('/state') == 'unavailable', UNAVAILABLE_MAX_S + 20, '/state unavailable')
-        r = api.get('/source/state')
+        r = api.get('/source/state', timeout=60)
         if r.status_code != 503 or 'application/json' not in api.last_content_type:
             raise Check('/source/state while server down: HTTP {} {}'.format(r.status_code, api.last_content_type))
     finally:
