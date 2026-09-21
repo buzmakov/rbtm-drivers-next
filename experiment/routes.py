@@ -325,7 +325,11 @@ def experiment_start(tomo_num):
     if not ((type(data['experiment parameters']) is dict) and (type(data['exp_id']) is str)):
         return create_response(success=False, error='Incorrect format: incorrect types')
 
-    exp_param = data['experiment parameters']
+    # Копия: exp_param['exp_id'] нужен только check_and_prepare_exp_parameters()
+    # и потоку эксперимента; мутировать data['experiment parameters'] нельзя —
+    # ниже (enriched_data) весь data целиком уходит в storage/Mongo, и лишний
+    # exp_id внутри 'experiment parameters' там не нужен и не ожидается.
+    exp_param = dict(data['experiment parameters'])
     exp_param['exp_id'] = data['exp_id']
 
     success, error = check_and_prepare_exp_parameters(exp_param)
