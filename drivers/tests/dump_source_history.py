@@ -5,6 +5,11 @@
 ``vendor/docs/ISOVOLT_3003_manual_rus.pdf``, раздел 8 (стр. 36–44).
 Высокое напряжение НЕ включается, никакие параметры не меняются.
 
+Порт не открывается заново: используется общий экземпляр
+``HWSource.get_shared()``, поэтому скрипт можно запускать в том же
+процессе, что и драйвер, не создавая второй файловый дескриптор на
+том же tty (каждое открытие дёргает DTR/RTS генератора).
+
 Запуск на robotom (порт уже проброшен в контейнер, UI должен быть неактивен,
 чтобы опросы не вклинивались в обмен):
 
@@ -16,63 +21,64 @@
 все строки как есть (``raw``), ничего не интерпретируя, кроме SR:12.
 """
 import argparse
+import os
 import sys
 import time
 
-import serial
+# Скрипт запускают как файл (python drivers/tests/dump_source_history.py),
+# поэтому пакет drivers нужно найти по пути репозитория.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
-DEFAULT_PORT = '/dev/ttyUSB0'
-LINE_TIMEOUT = 2.0      # с: ожидание первой строки ответа
+from drivers.XRaySource.XRaySource import HWSource  # noqa: E402
+
 IDLE_TIMEOUT = 0.7      # с: тишина, после которой считаем ответ законченным
 
-# Коды ошибок из руководства (стр. 44–47); полный словарь — HWSource.STATUS_STRINGS
-try:
-    sys.path.insert(0, '/xtomo')
-    from drivers.XRaySource.XRaySource import HWSource
-    STATUS_STRINGS = HWSource.STATUS_STRINGS
-except Exception:
-    STATUS_STRINGS = {}
+
+def get_source(port=None):
+    """Вернуть общий экземпляр драйвера (порт берётся из конфига, если не задан)."""
+    if port is None:
+        from drivers.utils import get_source_config
+        port = get_source_config()['port']
+    return HWSource.get_shared(port)
 
 
-def open_port(port):
-    return serial.Serial(
-        port, baudrate=9600, bytesize=serial.EIGHTBITS,
-        parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-        timeout=LINE_TIMEOUT, rtscts=False, dsrdtr=True,
-    )
+def query(source, command):
+    """Отправить команду и вернуть список всех строк ответа (без CR).
 
-
-def query(ser, command):
-    """Отправить команду и вернуть список всех строк ответа (без CR)."""
-    ser.reset_input_buffer()
-    ser.write((command + '\r\n').encode())
-    ser.flush()
+    Работает через транспорт ``HWSource``: запись и чтение — под его
+    ``_port_lock``, так что параллельный опрос драйвера не вклинится
+    в середину обмена. Журналы ``HO``/``HW`` отвечают несколькими
+    строками, поэтому читаем до тишины, а не ровно одну строку.
+    """
     lines = []
-    deadline = time.time() + LINE_TIMEOUT
-    while True:
-        raw = ser.read_until(b'\r')
-        if raw:
-            lines.append(raw.decode('latin-1').strip())
-            deadline = time.time() + IDLE_TIMEOUT
-            continue
-        if time.time() >= deadline:
-            break
+    with source._port_lock:
+        source._write_command(command)
+        deadline = time.time() + IDLE_TIMEOUT
+        while True:
+            raw = source.serial_port.read_until(b'\r')
+            if raw:
+                lines.append(raw.decode('latin-1').strip())
+                deadline = time.time() + IDLE_TIMEOUT
+                continue
+            if time.time() >= deadline:
+                break
     return lines
 
 
-def show(ser, command, label=None):
-    lines = query(ser, command)
+def show(source, command, label=None):
+    lines = query(source, command)
     text = ' | '.join(lines) if lines else '<no response>'
     print('{:<10} {:<28} {}'.format(command, label or '', text))
     return lines
 
 
-def dump_journal(ser, prefix, label, max_records):
+def dump_journal(source, prefix, label, max_records):
     """Читать записи журнала prefix:001..max_records, пока генератор отвечает."""
     print('\n== {} ({}:001..{:03d}) =='.format(label, prefix, max_records))
     empty_streak = 0
     for n in range(1, max_records + 1):
-        lines = query(ser, '{}:{:03d}'.format(prefix, n))
+        lines = query(source, '{}:{:03d}'.format(prefix, n))
         if not lines:
             empty_streak += 1
             if empty_streak >= 3:
@@ -85,42 +91,44 @@ def dump_journal(ser, prefix, label, max_records):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--port', default=DEFAULT_PORT)
+    parser.add_argument('--port', default=None,
+                        help='путь к порту; по умолчанию — из конфига источника')
     parser.add_argument('--max-records', type=int, default=32,
                         help='сколько записей журналов HO/HW читать (макс. 128)')
     parser.add_argument('--no-journals', action='store_true',
                         help='только статус, без журналов HO/HW')
     args = parser.parse_args()
 
+    source = get_source(args.port)
     print('ISOVOLT 3003 read-only dump, port {}, {}'.format(
-        args.port, time.strftime('%Y-%m-%d %H:%M:%S')))
-    with open_port(args.port) as ser:
-        time.sleep(0.5)
-        show(ser, 'ID', 'software id')
-        show(ser, 'XT', 'tube name')
-        show(ser, 'XU', 'tube nominal kV/A/W')
-        show(ser, 'RH', 'hours: unit + tube')
-        show(ser, 'RH:0', 'hours: unit')
-        show(ser, 'RH:1', 'hours: current tube')
-        show(ser, 'VN', 'nominal kV x1000')
-        show(ser, 'VA', 'actual kV x1000')
-        show(ser, 'CN', 'nominal mA x1000')
-        show(ser, 'CA', 'actual mA x1000')
-        for word in ('01', '06', '12', '30'):
-            lines = show(ser, 'SR:' + word, 'status word ' + word)
-            if word == '12' and lines:
-                try:
-                    code = int(lines[0].lstrip('*#'))
-                    print('           -> error code {}: {}'.format(
-                        code, STATUS_STRINGS.get(code, 'no error' if code == 0 else 'unknown')))
-                except ValueError:
-                    pass
-        show(ser, 'ER', 'error text')
-        show(ser, 'PA', 'current program number')
+        source.tty_name, time.strftime('%Y-%m-%d %H:%M:%S')))
 
-        if not args.no_journals:
-            dump_journal(ser, 'HO', 'operations journal', args.max_records)
-            dump_journal(ser, 'HW', 'warm-up journal', args.max_records)
+    show(source, 'ID', 'software id')
+    show(source, 'XT', 'tube name')
+    show(source, 'XU', 'tube nominal kV/A/W')
+    show(source, 'RH', 'hours: unit + tube')
+    show(source, 'RH:0', 'hours: unit')
+    show(source, 'RH:1', 'hours: current tube')
+    show(source, 'VN', 'nominal kV x1000')
+    show(source, 'VA', 'actual kV x1000')
+    show(source, 'CN', 'nominal mA x1000')
+    show(source, 'CA', 'actual mA x1000')
+    for word in ('01', '06', '12', '30'):
+        lines = show(source, 'SR:' + word, 'status word ' + word)
+        if word == '12' and lines:
+            try:
+                code = int(lines[0].lstrip('*#'))
+            except ValueError:
+                continue
+            print('           -> error code {}: {}'.format(
+                code, 'no error' if code == 0 else HWSource.describe_code(code)))
+    show(source, 'ER', 'error text')
+    show(source, 'RP', 'tube output power')
+    show(source, 'PA', 'current program number')
+
+    if not args.no_journals:
+        dump_journal(source, 'HO', 'operations journal', args.max_records)
+        dump_journal(source, 'HW', 'warm-up journal', args.max_records)
 
 
 if __name__ == '__main__':
