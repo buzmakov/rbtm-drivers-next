@@ -1,8 +1,30 @@
-# pytest --log-cli-level=INFO -s -v test_detector.py
+# pytest --log-cli-level=INFO -s -v -m hardware drivers/tests/test_detector.py
+#
+# Тесты требуют реальной камеры XIMEA и остановленного tomograph_server
+# (иначе устройство занято сервером). Офлайн-логика драйвера проверяется
+# в test_detector_offline.py.
 import logging
-import pytest
+
 import numpy as np
-from ..Detector.Detector import HWDetector
+import pytest
+
+try:
+    from ..Detector import Detector as _detector_module
+except ImportError as err:  # XIMEA SDK не установлен — железных тестов нет
+    pytest.skip("XIMEA SDK is not available: {}".format(err),
+                allow_module_level=True)
+
+# Офлайн-тесты (test_detector_offline.py) подсовывают заглушку пакета ximea,
+# чтобы модуль драйвера импортировался без SDK. Отличаем её от настоящего
+# биндинга по наличию методов у Camera — иначе железные тесты «успешно»
+# запустились бы на заглушке.
+if not hasattr(_detector_module.xiapi.Camera, 'open_device'):
+    pytest.skip("XIMEA SDK is not available (ximea stub is installed)",
+                allow_module_level=True)
+
+HWDetector = _detector_module.HWDetector
+
+pytestmark = pytest.mark.hardware
 
 
 @pytest.fixture
@@ -18,7 +40,7 @@ def test_detector_connection(detector):
 
     Проверяет:
     - Детектор открывается без ошибок.
-    - get_model() возвращает непустую строку.
+    - get_model() возвращает непустую строку (кэш из __init__).
     - get_pixel_size() возвращает положительное число.
     - get_state() возвращает словарь с ключами exposure, sensor_temp, hous_temp.
     - Температуры в допустимом диапазоне (-50 … 50 °C).
@@ -48,22 +70,55 @@ def test_detector_connection(detector):
 
 
 def test_detector_capture(detector):
-    """Захват одного кадра с экспозицией 0.1 с.
+    """Захват кадров с экспозицией 0.1 с (ленивый старт постоянного захвата).
 
     Проверяет:
-    - Возвращается numpy.ndarray с dtype uint16.
-    - Размер кадра ненулевой по обоим измерениям.
-    - Логируются mean и max пикселей для визуальной оценки.
+    - Первый get_frame() сам поднимает постоянный захват.
+    - Возвращается numpy.ndarray с dtype uint16, 2D, ненулевого размера.
+    - Второй кадр снимается без повторного старта захвата.
     """
-    frame = detector.get_frames(exposure=0.1, number_frames=1)
+    assert detector._acquisition_active is False, \
+        "захват не должен стартовать в __init__"
+
+    frame = detector.get_frame(0.1)
     logging.info("Frame shape: %s, dtype: %s", frame.shape, frame.dtype)
     logging.info("Frame mean: %.1f, max: %d", frame.mean(), frame.max())
 
     assert isinstance(frame, np.ndarray), \
-        "get_frames() должен вернуть numpy.ndarray"
+        "get_frame() должен вернуть numpy.ndarray"
     assert frame.dtype == np.uint16, \
         "dtype должен быть uint16, получен: {}".format(frame.dtype)
     assert frame.ndim == 2, \
         "Кадр должен быть двумерным (H, W)"
     assert frame.shape[0] > 0 and frame.shape[1] > 0, \
         "Размер кадра не должен быть нулевым: {}".format(frame.shape)
+    assert detector._acquisition_active is True, \
+        "после первого кадра постоянный захват должен быть активен"
+
+    second = detector.get_frame(0.1)
+    assert second.shape == frame.shape
+    assert detector._acquisition_active is True
+
+
+def test_detector_explicit_acquisition_cycle(detector):
+    """Явный цикл start_acquisition() → кадры → stop_acquisition().
+
+    Так детектором пользуется Flask-слой в эксперименте.
+    Проверяет идемпотентность start/stop и смену экспозиции на лету.
+    """
+    detector.start_acquisition(0.1)
+    detector.start_acquisition(0.1)  # повторный вызов игнорируется
+    assert detector._acquisition_active is True
+
+    first = detector.get_frame(0.1)
+    second = detector.get_frame(0.2)  # экспозиция меняется без stop/start
+    assert first.shape == second.shape
+    assert detector._acquisition_active is True
+
+    detector.stop_acquisition()
+    detector.stop_acquisition()  # идемпотентно
+    assert detector._acquisition_active is False
+
+    # после остановки захват поднимается заново лениво
+    third = detector.get_frame(0.1)
+    assert third.shape == first.shape
