@@ -12,7 +12,7 @@
 #
 import logging
 import pytest
-from ..XRaySource.XRaySource import HWSource
+from ..XRaySource.XRaySource import HWSource, INTERLOCK_ERROR_CODES
 from ..utils import get_source_config
 
 
@@ -51,10 +51,6 @@ class TestSourceMock:
     def test_mock_get_actual_current(self, source_mock):
         c = source_mock.get_actual_current()
         assert c == 20.0, "mock: get_actual_current() должен вернуть 20.0"
-
-    def test_mock_get_actual_power(self, source_mock):
-        p = source_mock.get_actual_power()
-        assert p == 800.0, "mock: get_actual_power() должен вернуть 800.0"
 
     def test_mock_get_nominal_voltage(self, source_mock):
         v = source_mock.get_nominal_voltage()
@@ -103,7 +99,7 @@ class TestSourceConnection:
         status = source.get_status()
         logging.info("Full status: %s", status)
 
-        expected_sections = ('power status', 'warming status', 'interlock status')
+        expected_sections = ('power status', 'warming status')
         for section in expected_sections:
             assert section in status, \
                 "get_status() должен содержать раздел '{}'".format(section)
@@ -137,17 +133,15 @@ class TestSourceDiagnostics:
     """Диагностика состояния источника: interlock, ошибки, параметры."""
 
     def test_interlock_status(self, source):
-        """Проверка и логирование состояния блокировок."""
+        """Логирование состояния питания/прогрева и цепи блокировок.
+
+        Двери и аварийный останов приходят кодами ошибки SR:12
+        (``INTERLOCK_ERROR_CODES``), а не битами SR:30 — см. руководство §8.5.
+        """
         status = source.get_status()
-        interlock = status['interlock status']
         power = status['power status']
         warming = status['warming status']
 
-        logging.info(
-            "Interlock: door1=%s door2=%s extern_stop=%s emergency_stop=%s",
-            interlock['door 1 ok'], interlock['door 2 ok'],
-            interlock['extern stop ok'], interlock['emergency stop ok'],
-        )
         logging.info(
             "Power: hv_on=%s cooling_ok=%s battery_ok=%s voltage_norm=%s current_norm=%s",
             power['high voltage on'], power['cooling system ok'],
@@ -160,15 +154,13 @@ class TestSourceDiagnostics:
             warming['warming from pc'], warming['warming from kb'],
         )
 
-        # Если interlock открыт — логируем, но не падаем (это диагностика)
-        if not interlock['door 1 ok']:
-            logging.warning("DOOR 1 IS OPEN — interlock will prevent HV on")
-        if not interlock['door 2 ok']:
-            logging.warning("DOOR 2 IS OPEN — interlock will prevent HV on")
-        if not interlock['extern stop ok']:
-            logging.warning("EXTERN STOP is active")
-        if not interlock['emergency stop ok']:
-            logging.warning("EMERGENCY STOP is active")
+        # Если цепь блокировок разомкнута — логируем, но не падаем (это диагностика)
+        error = source.get_error()
+        if error is not None and error['code'] in INTERLOCK_ERROR_CODES:
+            logging.warning("INTERLOCK: code=%d (%s) — HV on will be rejected",
+                            error['code'], error['message'])
+        else:
+            logging.info("Interlock chain: no interlock error code (SR:12 = %s)", error)
 
     def test_error_code_diagnostics(self, source):
         """Читает текущий код ошибки SR:12 и выводит расшифровку."""
@@ -223,12 +215,6 @@ class TestSourceReadings:
         logging.info("Actual current: %.3f mA", c)
         assert isinstance(c, float), "get_actual_current() должен вернуть float"
 
-    def test_get_actual_power(self, source):
-        """get_actual_power() не бросает исключений (soft-fail)."""
-        p = source.get_actual_power()
-        logging.info("Actual power: %.3f W", p)
-        assert isinstance(p, float), "get_actual_power() должен вернуть float"
-
     def test_get_state_full(self, source):
         """get_state() без аргументов возвращает полный набор параметров."""
         state = source.get_state()
@@ -237,7 +223,6 @@ class TestSourceReadings:
             'is_on_high_voltage', 'id', 'tube_name',
             'actual_voltage', 'nominal_voltage',
             'actual_current', 'nominal_current',
-            'actual_power', 'nominal_power',
             'status', 'last_error',
         ]
         for key in expected_keys:
@@ -252,23 +237,17 @@ class TestSourceHighVoltage:
 
     @pytest.fixture(autouse=True)
     def check_interlock(self, source):
-        """Пропустить тест если interlock не позволяет включить ВН."""
-        status = source.get_status()
-        interlock = status['interlock status']
-        # NOTE: emergency_stop_ok исключён из проверки — с пульта генератор
-        # включается даже при активном сигнале E-STOP (SR:30 bit 2).
-        if not all([
-            interlock['door 1 ok'],
-            interlock['door 2 ok'],
-            interlock['extern stop ok'],
-            # interlock['emergency stop ok'],
-        ]):
+        """Пропустить тест, если цепь блокировок не даст включить ВН.
+
+        Состояние дверей и аварийного останова читается кодом ошибки SR:12
+        (руководство §8.5.1), в SR:30 таких битов нет.
+        """
+        error = source.get_error()
+        if error is not None and error['code'] in INTERLOCK_ERROR_CODES:
             pytest.skip(
-                "Interlock open: door1={} door2={} extern_stop={} emergency_stop={}. "
+                "Interlock open: SR:12 = {} ({}). "
                 "Ensure all doors are closed and emergency stop is released.".format(
-                    interlock['door 1 ok'], interlock['door 2 ok'],
-                    interlock['extern stop ok'], interlock['emergency stop ok'],
-                )
+                    error['code'], error['message'])
             )
 
     def test_on_high_voltage(self, source):

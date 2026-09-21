@@ -9,6 +9,17 @@ CACHE_TTL = 3           # секунды: кэшировать значение 
                         # UI опрашивает каждые 3 сек, кадры при съёмке — чаще
 WARMUP_TIMEOUT = 1800   # максимальное время прогрева — 30 минут
 
+# Коды SR:12, означающие разомкнутую цепь блокировок (руководство §8.5.1).
+# Именно они, а не биты SR:30, сообщают о дверях и аварийном останове.
+INTERLOCK_ERROR_CODES = (
+    35,  # Interlock open
+    43,  # Extern STOP
+    46,  # EMERGENCY-STOP
+    63,  # Door contact 1 and 2 open
+    64,  # Door contact 1 open
+    65,  # Door contact 2 open
+)
+
 # Реестр долгоживущих экземпляров: один HWSource на порт в процессе.
 # Каждое открытие/закрытие serial-порта дёргает линии DTR/RTS на RS-232
 # ISOVOLT 3003, а пересоздание HWTomograph через RedisProxy (при любой
@@ -35,44 +46,15 @@ class HWSource(object):
     - Если прогрев прерван, даётся 3 попытки (код 116 = неудача).
     - Статус прогрева: SR:06 биты 1/2/4/8 (вкл с клавиатуры/PC, прерван, в процессе).
     - Статус ВН: SR:01 бит 6 (1=вкл), бит 4/8 (0=напряжение/ток стабилизированы).
-    - Aварийный стоп: SR:30 бит 4 (1=активен). Это interlock-статус, а не ошибка.
+    - Двери и аварийный стоп — это НЕ биты SR:30, а коды ошибки SR:12:
+      35 (Interlock open), 43 (Extern STOP), 46 (EMERGENCY-STOP),
+      63/64/65 (двери 1+2 / 1 / 2 разомкнуты). В SR:30 лежат режим работы,
+      вид стабилизации и состояние внешней лампы (руководство §8.5).
     """
 
+    # Коды сообщений строки ошибок (SR:12), руководство §8.5.1.
+    # Нумерация начинается с 033 — кодов 1–32 в протоколе нет.
     STATUS_STRINGS = {
-        # ── Низкие коды: состояние/неготовность генератора ───────────────
-        1:  "HV on",
-        2:  "Ready",
-        3:  "Standby",
-        4:  "Warm-up running",
-        5:  "Fault",
-        6:  "Generator not initialised / not ready",
-        7:  "Filament current out of tolerance",
-        8:  "Coolant flow insufficient",
-        9:  "Anode overtemperature",
-        10: "Coolant temperature too high",
-        11: "Overtemperature generator",
-        12: "Filament error",
-        13: "Preselected values out of range",
-        14: "Filament open circuit",
-        15: "Filament short circuit",
-        16: "Focus changeover switch error",
-        17: "High voltage too high",
-        18: "High voltage too low",
-        19: "Tube current too high",
-        20: "Tube current too low",
-        21: "Anode power too high",
-        22: "Anode power too low",
-        23: "Ground current error",
-        24: "HV contactor error",
-        25: "HV lamp error",
-        26: "Chopper error",
-        27: "Chopper temperature error",
-        28: "Bypass charging resistor error",
-        29: "Flash lamp error",
-        30: "External warning lamp error",
-        31: "Buffer battery low",
-        32: "Keypad error",
-        # ── Стандартные коды аварий ───────────────────────────────────────
         33: "Cooling system failed",
         34: "HV interlock error",
         35: "Interlock open",
@@ -182,12 +164,8 @@ class HWSource(object):
         self.tty_name = tty_name
         self.timer_voltage_nominal = None
         self.timer_current_nominal = None
-        self.timer_power_nominal = None
-        self.timer_power_actual = None
         self.last_voltage_nominal = None
         self.last_current_nominal = None
-        self.last_power_nominal = None
-        self.last_power_actual = None
 
         self.device_id = None
         self.tube_name = None
@@ -402,9 +380,6 @@ class HWSource(object):
             logging.warning("Source.is_on_high_voltage(): failed to read status: %s (returning False)", e)
             return False
 
-    # Backward-compat alias (опечатка в старом коде)
-    is_on_high_volatge = is_on_high_voltage
-
     def warmup(self, voltage=None):
         """Запустить программу прогрева трубки (WU).
 
@@ -504,10 +479,6 @@ class HWSource(object):
                         ans6 = self.get_data_string()
                         sw_6 = self.get_number(ans6)
 
-                        self._write_command("SR:30")
-                        ans30 = self.get_data_string()
-                        sw_30 = self.get_number(ans30)
-
                         in_progress = bool(sw_6 & 8)
                         from_pc = bool(sw_6 & 2)
                         from_kb = bool(sw_6 & 1)
@@ -597,13 +568,16 @@ class HWSource(object):
         return self.get_number(answer)
 
     def get_status(self):
-        """Прочитать полный статус устройства (SW1, SW6, SW30).
+        """Прочитать статус устройства (слова состояния SR:01 и SR:06).
 
         При ошибке связи (например, во время прогрева) возвращает
-        "безопасный" статус: HV выключено, прогрев в процессе,
-        интерлоки в норме — и логирует предупреждение.
+        "безопасный" статус: HV выключено, прогрев в процессе —
+        и логирует предупреждение.
         Во время прогрева (_warming_up.is_set()) сразу возвращает
         безопасный fallback, чтобы не вклиниваться в warmup().
+
+        Двери/аварийный стоп здесь не возвращаются: в SR:30 их нет,
+        они приходят кодами ошибки SR:12 (35, 43, 46, 63–65) — см. get_error().
 
         Returns:
             dict: Словарь со структурой::
@@ -623,12 +597,6 @@ class HWSource(object):
                         'warming from pc': bool,
                         'warming from kb': bool,
                     },
-                    'interlock status': {
-                        'door 1 ok': bool,
-                        'door 2 ok': bool,
-                        'extern stop ok': bool,
-                        'emergency stop ok': bool,
-                    }
                 }
         """
         if self.mock:
@@ -646,12 +614,6 @@ class HWSource(object):
                     'warming interrupted': False,
                     'warming from pc': False,
                     'warming from kb': False,
-                },
-                'interlock status': {
-                    'door 1 ok': True,
-                    'door 2 ok': True,
-                    'extern stop ok': True,
-                    'emergency stop ok': True,
                 },
             }
         # Во время прогрева не лезем в порт
@@ -671,12 +633,6 @@ class HWSource(object):
                     'warming interrupted': False,
                     'warming from pc': False,
                     'warming from kb': False,
-                },
-                'interlock status': {
-                    'door 1 ok': True,
-                    'door 2 ok': True,
-                    'extern stop ok': True,
-                    'emergency stop ok': True,
                 },
             }
         try:
@@ -698,14 +654,6 @@ class HWSource(object):
                 'warming from kb':    bool(sw_6 & 1),
             }
 
-            sw_30 = self.read_status_word(30)
-            res['interlock status'] = {
-                'door 1 ok':       not bool(sw_30 & 64),
-                'door 2 ok':       not bool(sw_30 & 32),
-                'extern stop ok':  not bool(sw_30 & 8),
-                'emergency stop ok': not bool(sw_30 & 4),
-            }
-
             return res
         except Exception as e:
             logging.warning(
@@ -725,12 +673,6 @@ class HWSource(object):
                     'warming interrupted': False,
                     'warming from pc': False,
                     'warming from kb': False,
-                },
-                'interlock status': {
-                    'door 1 ok': True,
-                    'door 2 ok': True,
-                    'extern stop ok': True,
-                    'emergency stop ok': True,
                 },
             }
 
@@ -886,76 +828,6 @@ class HWSource(object):
             logging.warning("Source.get_actual_current() exception: %s (returning 0.0)", e)
             return 0.0
 
-    def get_nominal_power(self):
-        """Прочитать установленную мощность (Вт).
-
-        Некоторые генераторы (например, ISOVOLT 3003) не поддерживают
-        команду ``PN``; в этом случае мощность рассчитывается как
-        ``nominal_voltage * nominal_current``.
-
-        Returns:
-            float: Мощность в Вт.
-        """
-        if self.mock:
-            return 800.0
-        cached = self._check_cache(self.timer_power_nominal, self.last_power_nominal)
-        if cached is not None:
-            return cached
-
-        logging.debug('Source.get_nominal_power() starting...')
-        with self._port_lock:
-            self._write_command("PN")
-            answer = self.get_data_string()
-        error = self.get_error()
-
-        if error is not None or not answer.startswith('*'):
-            # PN не поддерживается — рассчитываем через V*I
-            v = self.get_nominal_voltage()
-            c = self.get_nominal_current()
-            self.last_power_nominal = v * c
-            logging.debug('Source.get_nominal_power(): PN unsupported, calculated %.3f W', self.last_power_nominal)
-        else:
-            self.last_power_nominal = self.get_number(answer) / 1000.0
-
-        self.timer_power_nominal = time()
-        logging.debug('Source.get_nominal_power() finished.')
-        return self.last_power_nominal
-
-    def get_actual_power(self):
-        """Прочитать фактическую мощность (Вт).
-
-        При ошибке от устройства возвращает последнее кешированное значение
-        (или 0.0 если кеша нет) и логирует предупреждение — не бросает исключение.
-
-        Returns:
-            float: Мощность в Вт (0.0 если устройство не отвечает корректно).
-        """
-        if self.mock:
-            return 800.0
-        cached = self._check_cache(self.timer_power_actual, self.last_power_actual)
-        if cached is not None:
-            return cached
-
-        logging.debug('Source.get_actual_power() starting...')
-        try:
-            with self._port_lock:
-                self._write_command("PA")
-                answer = self.get_data_string()
-            error = self.get_error()
-            if error is not None:
-                logging.warning(
-                    "Source.get_actual_power() device error: %s (returning last cached or 0.0)",
-                    error)
-                return self.last_power_actual if self.last_power_actual is not None else 0.0
-
-            self.last_power_actual = self.get_number(answer) / 1000.0
-            self.timer_power_actual = time()
-            logging.debug('Source.get_actual_power() finished.')
-            return self.last_power_actual
-        except Exception as e:
-            logging.warning("Source.get_actual_power() exception: %s (returning 0.0)", e)
-            return self.last_power_actual if self.last_power_actual is not None else 0.0
-
     # ------------------------------------------------------------------
     # Установка параметров
     # ------------------------------------------------------------------
@@ -988,9 +860,9 @@ class HWSource(object):
         error = None
         try:
             with self._port_lock:
+                # На SV генератор ответа не шлёт (руководство §8.2: у SV есть
+                # только параметр передачи) — читаем сразу код ошибки.
                 self._write_command(command)
-                error_answer = self.get_data_string()
-                # Читаем ошибку отдельно под блокировкой
                 self._write_command("SR:12")
                 err_answer = self.get_data_string()
                 try:
@@ -1021,7 +893,6 @@ class HWSource(object):
                 try:
                     with self._port_lock:
                         self._write_command(command)
-                        error_answer = self.get_data_string()
                         self._write_command("SR:12")
                         err_answer = self.get_data_string()
                         try:
@@ -1041,7 +912,6 @@ class HWSource(object):
                     self._write_command("CL")
                     sleep(0.3)
                     self._write_command(command)
-                    self.get_data_string()
                     self._write_command("SR:12")
                     err_answer = self.get_data_string()
                     try:
@@ -1085,28 +955,6 @@ class HWSource(object):
 
         self.wait_for_current()
         logging.debug('Source.set_current() finished.')
-
-    def set_power(self, power):
-        """Установить мощность.
-
-        Args:
-            power (float): Мощность в Вт.
-
-        Raises:
-            RuntimeError: При ошибке от устройства.
-        """
-        if self.mock:
-            return
-        logging.debug('Source.set_power() starting...')
-        command = "SP:{}".format(str(int(round(power * 1000))).zfill(6))
-        with self._port_lock:
-            self._write_command(command)
-        error = self.get_error()
-        if error is not None:
-            logging.error("Source.set_power() error: {}".format(error))
-            raise RuntimeError("Source.set_power() error: {}".format(error))
-
-        logging.debug('Source.set_power() finished.')
 
     # ------------------------------------------------------------------
     # Идентификация
@@ -1289,7 +1137,7 @@ class HWSource(object):
         return int(line[1:])
 
     # ------------------------------------------------------------------
-    # Интерфейс get_state / set_state
+    # Интерфейс get_state
     # ------------------------------------------------------------------
 
     def get_state(self, options=None):
@@ -1301,7 +1149,6 @@ class HWSource(object):
                 Допустимые значения: ``'is_on_high_voltage'``, ``'id'``,
                 ``'tube_name'``, ``'actual_voltage'``, ``'nominal_voltage'``,
                 ``'actual_current'``, ``'nominal_current'``,
-                ``'actual_power'``, ``'nominal_power'``,
                 ``'status'``, ``'last_error'``.
 
         Returns:
@@ -1312,7 +1159,6 @@ class HWSource(object):
                 'is_on_high_voltage', 'id', 'tube_name',
                 'actual_voltage', 'nominal_voltage',
                 'actual_current', 'nominal_current',
-                'actual_power', 'nominal_power',
                 'status', 'last_error',
             ]
         if not isinstance(options, (list, tuple)):
@@ -1326,8 +1172,6 @@ class HWSource(object):
             'nominal_voltage':    self.get_nominal_voltage,
             'actual_current':     self.get_actual_current,
             'nominal_current':    self.get_nominal_current,
-            'actual_power':       self.get_actual_power,
-            'nominal_power':      self.get_nominal_power,
             'status':             self.get_status,
             'last_error':         self.get_error,
         }
@@ -1339,39 +1183,3 @@ class HWSource(object):
             else:
                 res[option] = {'error': 'Unsupported option: {}'.format(option)}
         return res
-
-    def set_state(self, options_dict):
-        """Установить параметры устройства.
-
-        Args:
-            options_dict (dict): Словарь ``{параметр: значение}``.
-                Поддерживаемые ключи: ``'set_voltage'`` (кВ),
-                ``'set_current'`` (мА), ``'set_power'`` (Вт),
-                ``'high_voltage'`` (bool).
-
-        Returns:
-            dict: Словарь с запрошенными и результирующими значениями.
-        """
-        res = {}
-        handlers = {
-            'set_voltage': self.set_voltage,
-            'set_current': self.set_current,
-            'set_power':   self.set_power,
-        }
-
-        for option, value in options_dict.items():
-            if option in handlers:
-                res[option] = handlers[option](value)
-            elif option == 'high_voltage':
-                if value is True:
-                    res[option] = self.on_high_voltage()
-                elif value is False:
-                    res[option] = self.off_high_voltage()
-                else:
-                    res[option] = {
-                        'error': 'high_voltage must be True or False, got: {}'.format(value)
-                    }
-            else:
-                res[option] = {'error': 'Unsupported option: {}'.format(option)}
-
-        return {'requested_state': options_dict, 'result': res}
