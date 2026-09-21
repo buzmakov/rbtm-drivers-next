@@ -1,3 +1,4 @@
+import copy
 import logging
 import threading
 import time
@@ -149,9 +150,14 @@ class BaseExperiment:
                     tl.append({'mode': mode, 'count': 1})
 
     def get_status(self):
-        """Вернуть копию status_dict потокобезопасно."""
+        """Вернуть глубокую копию status_dict потокобезопасно.
+
+        Мелкая копия не годится: 'timeline' — список dict, который поток
+        съёмки мутирует (append/count += 1) в фоне, пока вызывающий код
+        (например, json.dumps в /experiment/status) итерирует его же.
+        """
         with self._status_lock:
-            return dict(self.status_dict)
+            return copy.deepcopy(self.status_dict)
 
     # -- кадры -------------------------------------------------------------
 
