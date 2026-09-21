@@ -225,7 +225,6 @@ class Experiment:
         for iangle, current_angle in enumerate(exp_angles):
             if self.to_be_stopped:
                 break
-            # self.check_source()
             tomo_logger.info(f'Collecting frame {iangle}/{len(exp_angles)}')
             # blocking=True: мотор должен достичь целевого угла ДО съёмки кадра.
             # При blocking=False кадры снимались бы во время вращения — данные испорчены.
@@ -242,7 +241,6 @@ class Experiment:
         for i in range(0, self.EMPTY_count):
             if self.to_be_stopped:
                 break
-            # self.check_source()
             self.get_and_send_frame(self.EMPTY_exposure, mode='empty')
         self.tomograph.close_shutter(0)
         self.tomograph.move_back()
@@ -255,22 +253,6 @@ class Experiment:
                 break
             self.get_and_send_frame(exposure=self.DARK_exposure, mode='dark')
 
-    def check_source(self):
-
-        current = self.tomograph.source_get_current()
-        voltage = self.tomograph.source_get_voltage()
-
-        if (current is not None) and (voltage is not None):
-            if current > 2 and voltage > 2:
-                return
-
-        print('X-ray source in wrong mode, try restart (off/on)')
-        print('current = {0}, voltage = {1}'.format(current, voltage))
-
-        self.tomograph.source_power_off()
-        time.sleep(5)
-        self.tomograph.source_power_on()
-        time.sleep(5)
 
 
 @traced(tomo_logger.logger)

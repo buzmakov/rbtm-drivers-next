@@ -134,7 +134,7 @@ Docstring `get_frames` (`:280-284`) противоречит `:68-70` про п�
 - TOCTOU на `/experiment/start` (`:265-313`): проверка `tomo_state()` и старт потока не атомарны; поток не отслеживается.
 - `create_response` возвращает строку → `Content-Type: text/html` для всего API (`:399-406`).
 - `Experiment` и `AdvancedExperiment` дублируют `__init__`-статус, `_update_status`, `get_status`, `get_and_send_frame`; `carry_out_simple/advanced_experiment` — копии. Нужен базовый класс.
-- Мёртвое: `check_source()` с `print` и `sleep(5)` (`experiment.py:258-273`, вызовы закомментированы), `make_png` + `matplotlib` (вызывается только при `experiment=None`, чего не бывает), `send_to_webpage` параметр, `HWTomograph`-заглушка, `y_position`/`set_y` (вертикального мотора нет — оставить как явную заглушку или убрать из API вместе с rbtm-web).
+- Мёртвое: `check_source()` с `print` и `sleep(5)` (`experiment.py:258-273`, вызовы закомментированы), `send_to_webpage` параметр, `HWTomograph`-заглушка, `y_position`/`set_y` (вертикального мотора нет — оставить как явную заглушку или убрать из API вместе с rbtm-web).
 - `STORAGE_URI` захардкожен (`constants.py:2`).
 - `source_wait_for_ready` до 30 мин с 3 RPC каждые 5 с — нормально, но при мёртвом порте это 30 минут ожидания «прогрева» (см. §3.1 `get_status`).
 - `time.sleep(0.5)` перед dark-серией без проверки состояния затвора (`experiment.py:252, :427`).
@@ -146,7 +146,7 @@ Docstring `get_frames` (`:280-284`) противоречит `:68-70` про п�
 
 - `experiment/redis_proxy.py` == `redis_proxy.py` (побайтно). `tomologger.py`/`hwtomologger.py` отличаются двумя строками; в обоих неиспользуемый импорт `traced`.
 - `restart_fw.sh`, `restart_usb.sh` дублируют `restart.sh fw|usb`; `restart_usb.sh` хардкодит `/dev/bus/usb/004/003`.
-- `requirements.txt`: `cachetools`, `ipython` не импортируются; `waitress` только в закомментированном `CMD`; версии не запинены. `matplotlib`/`scipy` нужны только `make_png`/`median_filter`.
+- `requirements.txt`: `cachetools`, `ipython` не импортируются; `waitress` только в закомментированном `CMD`; версии не запинены. `matplotlib` нужен только `make_png` (роут `/detector/get-frame`, который rbtm-web использует), `scipy` — `median_filter`.
 - `docker-compose.yml`: пробрасываются `/dev/ttyACM0..3` поимённо — если одного нет, контейнер не стартует (`d59be68` убрал `ttyACM4` именно поэтому); `docker-entrypoint.sh` восстанавливает `/dev/ximc/<SERIAL>` через sysfs. Проще: udev-правила на хосте (как уже сделано для `/dev/isovolt`) + проброс `/dev/isovolt`, `/dev/ximc/*`, `/dev/shutter` симлинками. Источник до сих пор пробрасывается как `/dev/ttyUSB0`, хотя `/dev/isovolt` есть с 14.09.
 - `redisinsight` в compose — dev-инструмент с `restart: always`; `restart.sh` его не поднимает — убрать в профиль `debug`.
 - `Dockerfile`: `FLASK_DEBUG=1` в проде; `waitress` закомментирован.

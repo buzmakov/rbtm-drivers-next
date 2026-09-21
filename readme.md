@@ -55,7 +55,7 @@ rbtm-web (Django) ──HTTP──► rbtm-drivers-next (Flask :5001)
 | Устройство | Класс | Документация |
 |---|---|---|
 | Детектор XIMEA xiRAY | [`HWDetector`](drivers/Detector/Detector.py) | [drivers/Detector/README.md](drivers/Detector/README.md) |
-| Шаговый мотор XIMC | [`HWMotor`](drivers/Motors/Motor.py) | [drivers/Motors/README.md](drivers/Motors/README.md) |
+| Шаговые моторы XIMC | [`HWRotaryMotor`, `HWLinearMotor`](drivers/Motors/Motor.py) | [drivers/Motors/README.md](drivers/Motors/README.md) |
 | Заслонка Ke-USB24R | [`HWShutter`](drivers/XRayShutter/XRayShutter.py) | [drivers/XRayShutter/README.md](drivers/XRayShutter/README.md) |
 | Источник ISOVOLT 3003 | [`HWSource`](drivers/XRaySource/XRaySource.py) | [drivers/XRaySource/README.md](drivers/XRaySource/README.md) |
 | Томограф (агрегатор) | [`HWTomograph`](drivers/Tomograph/Tomograph.py) | — |
@@ -72,10 +72,11 @@ speed        = 500
 acceleration = 500
 
 [horizontal motor]
-port                = xi-com:///dev/ximc/00000271
-speed               = 200
-acceleration        = 200
-move_object_outside = -4200
+port                   = xi-com:///dev/ximc/00000271
+speed                  = 200
+acceleration           = 200
+steps_per_mm           = 199.46
+move_object_outside_mm = -21.06
 
 [shutter]
 port  = /dev/ttyACM2
@@ -83,6 +84,7 @@ relay = 4
 
 [x-ray source]
 port = /dev/ttyUSB0
+mock = false
 ```
 
 ### Тесты оборудования
@@ -236,17 +238,26 @@ total_frames = (
 |---|---|---|
 | POST | `/tomograph/<n>/detector/get-frame-preview` | Превью кадра (npz, downsampled) |
 | GET | `/tomograph/<n>/detector/model` | Модель детектора |
+| POST | `/tomograph/<n>/detector/get-frame` | Кадр с открытым затвором (png) |
+| POST | `/tomograph/<n>/detector/get-frame-with-closed-shutter` | Кадр с закрытым затвором (png) |
+| GET | `/tomograph/<n>/detector/chip_temp` | Температура сенсора |
+| GET | `/tomograph/<n>/detector/hous_temp` | Температура корпуса |
 
 ### Двигатели, затвор, источник
 | Метод | URL | Описание |
 |---|---|---|
 | POST | `/tomograph/<n>/motor/set-angle-position` | Установить угол |
 | GET | `/tomograph/<n>/motor/get-angle-position` | Текущий угол |
+| POST | `/tomograph/<n>/motor/set-horizontal-position` | Горизонтальная позиция (шаги) |
+| GET | `/tomograph/<n>/motor/get-horizontal-position` | Текущая горизонтальная позиция |
+| POST | `/tomograph/<n>/motor/set-vertical-position` | Вертикальная позиция (заглушка, мотора нет) |
+| GET | `/tomograph/<n>/motor/get-vertical-position` | Вертикальная позиция (заглушка) |
 | GET | `/tomograph/<n>/motor/reset-angle-position` | Сбросить угол в 0 |
 | GET | `/tomograph/<n>/motor/move-away` | Убрать образец из пучка |
 | GET | `/tomograph/<n>/motor/move-back` | Вернуть образец в пучок |
 | GET | `/tomograph/<n>/shutter/open/0` | Открыть затвор |
 | GET | `/tomograph/<n>/shutter/close/0` | Закрыть затвор |
+| GET | `/tomograph/<n>/shutter/state` | Состояние затвора |
 | GET | `/tomograph/<n>/source/power-on` | Включить рентген (async, запускает прогрев при необходимости) |
 | GET | `/tomograph/<n>/source/power-off` | Выключить рентген |
 | GET | `/tomograph/<n>/source/state` | Состояние источника: `on`, `busy`, `mocked`, `warming_status` |

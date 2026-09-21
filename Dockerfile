@@ -31,6 +31,7 @@ EXPOSE 5001
 
 COPY tomograph_server.py /xtomo/tomograph_server.py
 COPY redis_proxy.py /xtomo/redis_proxy.py
+COPY tomologging.py /xtomo/tomologging.py
 COPY docker-entrypoint.sh /xtomo/docker-entrypoint.sh
 RUN chmod +x /xtomo/docker-entrypoint.sh
 
@@ -42,7 +43,6 @@ RUN chmod +x /xtomo/docker-entrypoint.sh
 # RUN chown -R robotom /drivers
 # USER robotom
 
-# CMD waitress-serve --port=5001 --host=0.0.0.0 --call experiment:create_app
 CMD FLASK_DEBUG=1 FLASK_APP=experiment flask run --port=5001 --host=0.0.0.0 --no-reload
 
 # RUN ls -la /dev/tty*
