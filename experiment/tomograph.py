@@ -12,8 +12,8 @@ from autologging import traced
 from . import tomo_logger
 
 # Таймауты RPC (с). Обычные запросы к железу — секунды; движение мотора —
-# до полного оборота (32400 шагов / 500 шаг/с ≈ 65 с) с запасом; кадр —
-# от экспозиции (см. get_frame).
+# угловой идёт кратчайшим путём (≤ 180°, ≈ 33 с при speed=500), линейный
+# до парковки ≈ 20 с; берём с запасом. Кадр — от экспозиции (см. get_frame).
 RPC_TIMEOUT_S = 15
 RPC_MOVE_TIMEOUT_S = 120
 # Таймаут кадра = 2·экспозиция + RPC_FRAME_EXTRA_S; должен быть больше
@@ -188,11 +188,11 @@ class Tomograph:
         return self.hw.call('source.get_actual_current')
 
     def open_shutter(self, time_=0):
-        self.hw.call('shutter.open')
+        self.hw.call('shutter.open_shutter')
         return self.shutter_status()
 
     def close_shutter(self, time_=0):
-        self.hw.call('shutter.close')
+        self.hw.call('shutter.close_shutter')
         return self.shutter_status()
 
     def shutter_state(self):

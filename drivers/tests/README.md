@@ -9,6 +9,7 @@
 | [`test_detector_offline.py`](test_detector_offline.py) | — (заглушка камеры) | Логика драйвера детектора **без железа**: ленивый старт захвата, триггер на кадр, сброс состояния при ошибке, зависание, close() |
 | [`test_detector.py`](test_detector.py) | Детектор XIMEA | Подключение, метаданные, температуры, захват кадров, цикл start/stop acquisition |
 | [`test_detector_perf.py`](test_detector_perf.py) | Детектор XIMEA | Бенчмарк: накладные расходы на кадр (время кадра − экспозиция) при 0.1 / 1 / 10 с |
+| [`test_motor_math.py`](test_motor_math.py) | — (чистая математика) | Перевод шагов/микрошагов, мм, кратчайший путь по углу, расчёт таймаута движения **без железа** |
 | [`test_motors.py`](test_motors.py) | Угловой и горизонтальный моторы | Подключение, движение туда-обратно с assert точности |
 | [`test_shutter.py`](test_shutter.py) | Заслонка Ke-USB24R | Серийный номер, реле, АЦП, цикл открытия/закрытия |
 | [`test_source.py`](test_source.py) | Рентгеновский источник ISOVOLT | Идентификация, статус, блокировки — **без включения ВН** |
@@ -145,10 +146,9 @@ Flask-слой в эксперименте): идемпотентность star
 - `read_adc(1)` — `raw` в диапазоне 0–1023, `voltage_v` в 0.0–5.0 В.
 
 #### `test_shutter_open_close`
-- `close()` → assert закрыта;
-- `open()` → assert открыта;
-- `close()` → assert закрыта;
-- `set_state({'is_open': True/False})` — проверка интерфейса.
+- `close_shutter()` → assert закрыта;
+- `open_shutter()` → assert открыта;
+- `close_shutter()` → assert закрыта.
 
 ---
 
