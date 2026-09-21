@@ -286,6 +286,7 @@ total_frames = (
     "current_angle": 51.84,
     "elapsed_sec":   320.5,
     "last_frame_at": 1758480123.4,
+    "error":         null,
     "timeline": [
       {"mode": "dark",       "count": 10},
       {"mode": "empty",      "count": 10},
@@ -294,3 +295,13 @@ total_frames = (
   }
 }
 ```
+
+- `error` — причина аварийной остановки эксперимента (`stop_exception`/сообщение
+  стопа) или `null`, если эксперимент идёт штатно или завершился успешно.
+- `elapsed_sec` для уже завершённого эксперимента (`running: false`, есть
+  `last_experiment_status`) считается от `start_time` до момента завершения
+  `run()`, а не от текущего времени — не растёт после конца съёмки.
+- Сразу после `/experiment/start` (поток эксперимента запущен, но объект
+  эксперимента ещё не создан) статус отдаётся с `running: true`,
+  `current_mode: "pending"`, `frame_num: 0` и пустым `timeline` — вместо
+  статуса предыдущего эксперимента с `running: false`.

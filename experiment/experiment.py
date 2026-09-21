@@ -124,6 +124,12 @@ class BaseExperiment:
             'current_mode': 'pending',
             'current_angle': 0.0,
             'start_time': None,
+            # Unix timestamp завершения run() (успешного или нет). Пока
+            # эксперимент идёт — None; выставляется в run()/finally. Нужен,
+            # чтобы /experiment/status считал elapsed_sec для уже
+            # завершённого эксперимента от start_time до end_time, а не до
+            # вечно растущего time.time().
+            'end_time': None,
             'timeline': [],
             # Unix timestamp последнего снятого кадра. Фронтенд сравнивает
             # с текущим временем: большая разница → предупреждение о зависании.
@@ -234,6 +240,8 @@ class BaseExperiment:
             safe_hardware_shutdown(self.tomograph)
             if self.worker_thread is not None:
                 self.worker_thread.join()
+            with self._status_lock:
+                self.status_dict['end_time'] = time.time()
         if self.to_be_stopped and self.stop_exception is not None:
             raise self.stop_exception
 

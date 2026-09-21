@@ -360,7 +360,7 @@ def experiment_start(tomo_num):
         except ModExpError as e:
             return e.create_response()
 
-        tomograph.mark_experiment_starting()
+        tomograph.mark_experiment_starting(exp_id=exp_param['exp_id'])
         threading.Thread(target=tomograph.carry_out_experiment, args=(exp_param,),
                          name='experiment', daemon=True).start()
 
@@ -380,16 +380,37 @@ def experiment_stop(tomo_num):
 
 @bp_tomograph.route('/experiment/status', methods=['GET'])
 def experiment_status(tomo_num):
-    """Возвращает статус текущего или последнего завершённого эксперимента."""
+    """Возвращает статус текущего, стартующего или последнего завершённого эксперимента."""
     exp = tomograph.current_experiment
     if exp is not None:
         status = exp.get_status()
         running = True
         exp_id = exp.exp_id
+        se = exp.stop_exception
+        error = (se.exception_message or se.error or None) if se is not None else None
+    elif tomograph._experiment_starting:
+        # Окно между /experiment/start (поток уже запущен, mark_experiment_starting
+        # выставлен) и присвоением current_experiment в carry_out_experiment():
+        # без этой ветки роут отдавал ПРОШЛЫЙ статус с running=false, из-за
+        # чего UI (web) гасил поллинг прямо в момент старта нового эксперимента.
+        return create_response(success=True, result={
+            'running': True,
+            'exp_id': str(tomograph._starting_exp_id or ''),
+            'frame_num': 0,
+            'total_frames': 0,
+            'progress_pct': 0.0,
+            'current_mode': 'pending',
+            'current_angle': 0.0,
+            'elapsed_sec': 0.0,
+            'last_frame_at': None,
+            'error': None,
+            'timeline': [],
+        })
     elif tomograph.last_experiment_status is not None:
         status = tomograph.last_experiment_status
         running = False
         exp_id = status.get('exp_id', '')
+        error = status.get('error')
     else:
         return create_response(success=True, result={
             'running': False,
@@ -401,6 +422,7 @@ def experiment_status(tomo_num):
             'current_angle': 0.0,
             'elapsed_sec': 0.0,
             'last_frame_at': None,
+            'error': None,
             'timeline': [],
         })
 
@@ -409,7 +431,15 @@ def experiment_status(tomo_num):
     progress_pct = round(frame_num / total * 100, 1) if total > 0 else 0.0
 
     start_time = status.get('start_time')
-    elapsed_sec = round(time.time() - start_time, 1) if start_time else 0.0
+    if running:
+        # Эксперимент ещё идёт — считаем от текущего момента.
+        elapsed_sec = round(time.time() - start_time, 1) if start_time else 0.0
+    else:
+        # Эксперимент завершён — от зафиксированного в run() end_time, а не
+        # от time.time(): иначе elapsed_sec рос бы бесконечно и после конца
+        # съёмки (был замечен растущим часами после завершения эксперимента).
+        end_time = status.get('end_time')
+        elapsed_sec = round(end_time - start_time, 1) if (start_time and end_time) else 0.0
 
     return create_response(success=True, result={
         'running': running,
@@ -421,6 +451,7 @@ def experiment_status(tomo_num):
         'current_angle': status.get('current_angle', 0.0),
         'elapsed_sec': elapsed_sec,
         'last_frame_at': status.get('last_frame_at'),
+        'error': error,
         'timeline': status.get('timeline', []),
     })
 

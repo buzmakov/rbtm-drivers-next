@@ -35,6 +35,7 @@ class Tomograph:
                                  default_timeout_s=RPC_TIMEOUT_S)
         self.current_experiment = None
         self._experiment_starting = False  # поток запущен, current_experiment ещё не присвоен
+        self._starting_exp_id = None  # exp_id на время окна между стартом потока и current_experiment
         self.last_experiment_status = None  # финальный статус последнего эксперимента
         self.y_position = 0  # mock only property
         self.object_present = None  # mock only property
@@ -57,9 +58,15 @@ class Tomograph:
             return 'unavailable', 'hardware init failed: {}'.format(status.get('error'))
         return 'ready', ""
 
-    def mark_experiment_starting(self):
-        """Вызывается под локом старта до запуска потока эксперимента."""
+    def mark_experiment_starting(self, exp_id=None):
+        """Вызывается под локом старта до запуска потока эксперимента.
+
+        exp_id сохраняется отдельно, чтобы /experiment/status мог отдать его
+        в окне между этим вызовом и присвоением current_experiment в
+        carry_out_experiment() (там же, где строится BaseExperiment).
+        """
         self._experiment_starting = True
+        self._starting_exp_id = exp_id
 
     def source_power_on(self):
         """Включить высокое напряжение источника.
@@ -378,6 +385,7 @@ class Tomograph:
         cls = AdvancedExperiment if exp_param.get('advanced') else Experiment
         self.current_experiment = cls(_tomograph=self, exp_param=exp_param)
         self._experiment_starting = False
+        self._starting_exp_id = None
         exp_id = self.current_experiment.exp_id
         try:
             self.current_experiment.run()
@@ -389,6 +397,12 @@ class Tomograph:
             event_for_send = ModExpError(error='Unexpected error: {}'.format(e)).to_event_dict(exp_id)
         finally:
             self.last_experiment_status = self.current_experiment.get_status()
+            # Причина аварийной остановки (если была) — раньше уходила только
+            # в storage (event_for_send); /experiment/status тоже должен её
+            # показывать (ключ 'error'). None — эксперимент завершился штатно.
+            self.last_experiment_status['error'] = (
+                event_for_send.get('exception message') or event_for_send.get('error') or None
+            )
             self.current_experiment = None
         try:
             send_message_to_storage_webpage(event_for_send)
