@@ -306,63 +306,68 @@ class HWSource(object):
     # Ожидание готовности
     # ------------------------------------------------------------------
 
-    def wait_for_high_voltage(self):
-        """Ожидать включения высокого напряжения (до 10 секунд)."""
+    def _wait_until(self, predicate, description, timeout=WAIT_TIMEOUT):
+        """Ждать, пока ``predicate()`` не вернёт True, но не дольше ``timeout``.
+
+        Исключение из предиката трактуется как «ещё не готово»: генератор
+        во время переходных процессов может не отвечать, ронять из-за этого
+        включение ВН не нужно.
+
+        Args:
+            predicate (callable): Проверка, возвращающая bool.
+            description (str): Что именно ждём — попадает в лог.
+            timeout (float): Предел ожидания, с.
+
+        Returns:
+            bool: True — дождались, False — вышло время.
+        """
         if self.mock:
-            return
-        n = 0
-        while n < 10 and not self.is_on_high_voltage():
-            sleep(1)
-            n += 1
+            return True
+        deadline = time() + timeout
+        while True:
+            try:
+                if predicate():
+                    return True
+            except Exception as e:
+                logging.warning("Source._wait_until(%s): check failed: %s",
+                                description, e)
+            if time() >= deadline:
+                logging.warning("Source._wait_until(%s): not ready after %.0fs",
+                                description, timeout)
+                return False
+            sleep(WAIT_POLL_INTERVAL)
+
+    def wait_for_high_voltage(self):
+        """Ожидать включения высокого напряжения (до ``WAIT_TIMEOUT`` секунд)."""
+        return self._wait_until(self.is_on_high_voltage, 'high voltage on')
 
     def wait_for_high_voltage_down(self):
-        """Ожидать выключения высокого напряжения (до 10 секунд)."""
-        if self.mock:
-            return
-        n = 0
-        while n < 10 and self.is_on_high_voltage():
-            sleep(1)
-            n += 1
+        """Ожидать выключения высокого напряжения (до ``WAIT_TIMEOUT`` секунд)."""
+        return self._wait_until(lambda: not self.is_on_high_voltage(),
+                                'high voltage off')
 
     def wait_for_voltage(self):
-        """Ожидать стабилизации напряжения (до 10 секунд)."""
-        if self.mock:
-            return
-        try:
-            if not self.is_on_high_voltage():
-                return
-        except Exception:
-            logging.warning("Source.wait_for_voltage(): is_on_high_voltage failed, skipping wait")
-            return
-        n = 0
-        while n < 10:
-            try:
-                if self.get_status()['power status']['voltage kv norm']:
-                    return
-            except Exception:
-                logging.warning("Source.wait_for_voltage(): get_status failed, retrying")
-            sleep(1)
-            n += 1
+        """Ожидать стабилизации напряжения (SR:01 бит 2 = 0)."""
+        return self._wait_for_power_flag('voltage kv norm', 'voltage stabilized')
 
     def wait_for_current(self):
-        """Ожидать стабилизации тока (до 10 секунд)."""
+        """Ожидать стабилизации тока (SR:01 бит 3 = 0)."""
+        return self._wait_for_power_flag('current ma norm', 'current stabilized')
+
+    def _wait_for_power_flag(self, flag, description):
+        """Ждать флаг из ``get_status()['power status']``, если ВН включено."""
         if self.mock:
-            return
+            return True
         try:
             if not self.is_on_high_voltage():
-                return
-        except Exception:
-            logging.warning("Source.wait_for_current(): is_on_high_voltage failed, skipping wait")
-            return
-        n = 0
-        while n < 10:
-            try:
-                if self.get_status()['power status']['current ma norm']:
-                    return
-            except Exception:
-                logging.warning("Source.wait_for_current(): get_status failed, retrying")
-            sleep(1)
-            n += 1
+                return True
+        except Exception as e:
+            logging.warning("Source._wait_for_power_flag(%s): "
+                            "is_on_high_voltage failed: %s, skipping wait",
+                            description, e)
+            return True
+        return self._wait_until(
+            lambda: self.get_status()['power status'][flag], description)
 
     # ------------------------------------------------------------------
     # Управление высоким напряжением
@@ -382,13 +387,12 @@ class HWSource(object):
         """
         if self.mock:
             return
+        self._refuse_if_warming("Source.on_high_voltage()")
         logging.info('Source.on_high_voltage() starting...')
         for attempt in range(3):
-            with self._port_lock:
-                self._write_command("HV:1")
-                logging.info('Source.on_high_voltage(): HV:1 sent')
-            # get_error() бросит SourceCommunicationError, если порт мёртв
-            error = self.get_error()
+            # HV:1 и чтение SR:12 — одна транзакция; при мёртвом порте
+            # бросается SourceCommunicationError, успех не рапортуется.
+            error = self._send_and_read_error("HV:1")
             logging.info('Source.on_high_voltage(): error after HV:1 = %r', error)
             if error is None:
                 break
@@ -400,8 +404,7 @@ class HWSource(object):
                 # после чего повторяем HV:1.
                 logging.info("Source.on_high_voltage(): code %d (%s) — sending CL and retrying",
                              error['code'], INFORMATIONAL_CODES[error['code']])
-                with self._port_lock:
-                    self._write_command("CL")
+                self._transact("CL", expect_answer=False, read_error=False)
                 sleep(CL_SETTLE_DELAY)
             elif error['code'] in INFORMATIONAL_CODES:
                 logging.info("Source.on_high_voltage(): informational code %d (%s)",
@@ -656,9 +659,8 @@ class HWSource(object):
         if word_number not in [1, 6, 12, 30]:
             logging.error("Source.read_status_word(): unknown word number %d", word_number)
 
-        with self._port_lock:
-            self._write_command("SR:{}".format(str(word_number).zfill(2)))
-            answer = self.get_data_string()
+        answer, _ = self._transact("SR:{}".format(str(word_number).zfill(2)),
+                                   read_error=False)
         logging.debug('Source.read_status_word(%d) finished.', word_number)
         return self.get_number(answer)
 
@@ -809,10 +811,8 @@ class HWSource(object):
                 "Source.get_nominal_voltage(): warm-up in progress, no cached value")
 
         logging.debug('Source.get_nominal_voltage() starting...')
-        with self._port_lock:
-            self._write_command("VN")
-            answer = self.get_data_string()
-        self._check_error(self.get_error(), "Source.get_nominal_voltage()")
+        answer, error = self._transact("VN")
+        self._check_error(error, "Source.get_nominal_voltage()")
 
         self.last_voltage_nominal = self.get_number(answer) / 1000.0
         self.timer_voltage_nominal = time()
@@ -838,10 +838,7 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_voltage() starting...')
         try:
-            with self._port_lock:
-                self._write_command("VA")
-                answer = self.get_data_string()
-            error = self.get_error()
+            answer, error = self._transact("VA")
             if error is not None and error['code'] not in INFORMATIONAL_CODES:
                 logging.warning(
                     "Source.get_actual_voltage() device error: %s (returning 0.0)",
@@ -878,10 +875,8 @@ class HWSource(object):
                 "Source.get_nominal_current(): warm-up in progress, no cached value")
 
         logging.debug('Source.get_nominal_current() starting...')
-        with self._port_lock:
-            self._write_command("CN")
-            answer = self.get_data_string()
-        self._check_error(self.get_error(), "Source.get_nominal_current()")
+        answer, error = self._transact("CN")
+        self._check_error(error, "Source.get_nominal_current()")
 
         self.last_current_nominal = self.get_number(answer) / 1000.0
         self.timer_current_nominal = time()
@@ -905,10 +900,7 @@ class HWSource(object):
 
         logging.debug('Source.get_actual_current() starting...')
         try:
-            with self._port_lock:
-                self._write_command("CA")
-                answer = self.get_data_string()
-            error = self.get_error()
+            answer, error = self._transact("CA")
             if error is not None and error['code'] not in INFORMATIONAL_CODES:
                 logging.warning(
                     "Source.get_actual_current() device error: %s (returning 0.0)",
@@ -974,9 +966,8 @@ class HWSource(object):
             # Генератор ждёт подтверждения сообщения — снимаем его CL и повторяем.
             logging.info('Source.set_voltage(): code %d (%s) — CL and retry SV',
                          error['code'], INFORMATIONAL_CODES[error['code']])
-            with self._port_lock:
-                self._write_command("CL")
-                sleep(CL_SETTLE_DELAY)
+            self._transact("CL", expect_answer=False, read_error=False)
+            sleep(CL_SETTLE_DELAY)
             error = self._send_and_read_error(command)
             logging.info('Source.set_voltage(): after CL and retry SV, error=%r', error)
 
@@ -1048,10 +1039,8 @@ class HWSource(object):
             return self.device_id
 
         logging.debug('Source.get_id() starting...')
-        with self._port_lock:
-            self._write_command("ID")
-            answer = self.get_data_string()
-        self._check_error(self.get_error(), "Source.get_id()")
+        answer, error = self._transact("ID")
+        self._check_error(error, "Source.get_id()")
 
         self.device_id = answer
         logging.debug('Source.get_id() finished.')
@@ -1074,10 +1063,8 @@ class HWSource(object):
             return self.tube_name
 
         logging.debug('Source.get_tube_name() starting...')
-        with self._port_lock:
-            self._write_command("XT")
-            answer = self.get_data_string()
-        self._check_error(self.get_error(), "Source.get_tube_name()")
+        answer, error = self._transact("XT")
+        self._check_error(error, "Source.get_tube_name()")
 
         self.tube_name = answer
         logging.debug('Source.get_tube_name() finished.')
@@ -1104,9 +1091,7 @@ class HWSource(object):
             return None
         self._refuse_if_warming("Source.get_error()")
         try:
-            with self._port_lock:
-                self._write_command("SR:12")
-                answer = self.get_data_string()
+            answer, _ = self._transact("SR:12", read_error=False)
         except SourceCommunicationError:
             raise
         except Exception as e:
@@ -1198,57 +1183,40 @@ class HWSource(object):
         self.serial_port.flush()
         logging.debug("Source._write_command(): sent %r", full)
 
-    def _send_and_read_error(self, command):
-        """Отправить команду без ответа и прочитать код ошибки SR:12.
+    def _transact(self, command, expect_answer=True, read_error=True):
+        """Отправить команду и вернуть ``(answer, error)`` под ``_port_lock``.
 
-        Для команд-установок (``SV``, ``SC``, ``HV``, ``CL``…), на которые
-        генератор ответа не шлёт. Обе посылки идут под одним захватом
-        ``_port_lock`` — параллельный опрос не вклинится между ними.
-
-        Returns:
-            dict | None: ``{'code', 'message'}`` или None, если SR:12 = 0.
-
-        Raises:
-            SourceCommunicationError: Ответа на SR:12 нет или он неразбираем.
-        """
-        with self._port_lock:
-            self._write_command(command)
-            self._write_command("SR:12")
-            answer = self.get_data_string()
-        error_code = self._parse_error_code(answer)
-        if error_code:
-            return {'code': error_code, 'message': self.describe_code(error_code)}
-        return None
-
-    def _transact(self, command, read_error=True):
-        """Отправить команду и вернуть (answer, error) под _port_lock.
-
-        Атомарная транзакция: write → read answer → (опционально) read error — всё под мьютексом.
-        Гарантирует что параллельный UI-опрос не вклинится между командой и ответом.
+        Атомарная транзакция: write → read answer → read SR:12 — всё под
+        мьютексом, параллельный опрос не вклинится между командой и ответом.
 
         Args:
-            command: Строка команды (например, "VN", "SV:000200").
-            read_error: Если True, после ответа читаем код ошибки через SR:12.
+            command: Строка команды ("VN", "SV:000200"…).
+            expect_answer: False для команд-установок (``SV``, ``SC``, ``HV``,
+                ``CL``), на которые генератор ответа не шлёт (руководство §8.2:
+                у них есть только параметр передачи).
+            read_error: Если True, после ответа читается код ошибки SR:12.
 
         Returns:
-            tuple(str, dict|None): (строка ответа, словарь ошибки или None).
+            tuple(str | None, dict | None): (строка ответа, ошибка или None).
+
+        Raises:
+            SourceCommunicationError: Ответа нет или он неразбираем.
         """
         with self._port_lock:
             self._write_command(command)
-            answer = self.get_data_string()
+            answer = self.get_data_string() if expect_answer else None
             error = None
             if read_error:
                 self._write_command("SR:12")
-                err_answer = self.get_data_string()
-                try:
-                    error_code = int(err_answer[1:])
-                except (ValueError, IndexError):
-                    logging.warning("Source._transact(): cannot parse error answer: %r", err_answer)
-                    error_code = 0
-                if error_code != 0:
-                    message = self.STATUS_STRINGS.get(error_code, "Unknown error code {}".format(error_code))
-                    error = {'code': error_code, 'message': message}
+                error_code = self._parse_error_code(self.get_data_string())
+                if error_code:
+                    error = {'code': error_code,
+                             'message': self.describe_code(error_code)}
         return answer, error
+
+    def _send_and_read_error(self, command):
+        """Отправить команду без ответа и вернуть код ошибки SR:12 (или None)."""
+        return self._transact(command, expect_answer=False)[1]
 
     @staticmethod
     def get_number(line):
