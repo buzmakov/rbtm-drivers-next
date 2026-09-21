@@ -6,19 +6,34 @@
 
 | Файл | Устройство | Что проверяет |
 |---|---|---|
-| [`test_detector.py`](test_detector.py) | Детектор XIMEA | Подключение, метаданные, температуры, захват кадра |
+| [`test_detector_offline.py`](test_detector_offline.py) | — (заглушка камеры) | Логика драйвера детектора **без железа**: ленивый старт захвата, триггер на кадр, сброс состояния при ошибке, зависание, close() |
+| [`test_detector.py`](test_detector.py) | Детектор XIMEA | Подключение, метаданные, температуры, захват кадров, цикл start/stop acquisition |
+| [`test_detector_perf.py`](test_detector_perf.py) | Детектор XIMEA | Бенчмарк: накладные расходы на кадр (время кадра − экспозиция) при 0.1 / 1 / 10 с |
 | [`test_motors.py`](test_motors.py) | Угловой и горизонтальный моторы | Подключение, движение туда-обратно с assert точности |
 | [`test_shutter.py`](test_shutter.py) | Заслонка Ke-USB24R | Серийный номер, реле, АЦП, цикл открытия/закрытия |
 | [`test_source.py`](test_source.py) | Рентгеновский источник ISOVOLT | Идентификация, статус, блокировки — **без включения ВН** |
-| [`test_tomograh.py`](test_tomograh.py) | Томограф целиком | Структура ответа `get_state()` для всех устройств |
+| [`test_tomograh.py`](test_tomograh.py) | Томограф целиком | Структура ответа `get_state()` и `capture_frame()` для всех устройств |
 
 ## Запуск
+
+> **Остановите `tomograph_server` перед запуском тестов оборудования.**
+> Пока сервер работает, устройства заняты им: камера XIMEA не открывается,
+> моторы отдают `Motor.open(): open failed`, а на tty источника в контейнере
+> оказывается два файловых дескриптора.
+> ```bash
+> ./stop.sh                 # остановить сервер
+> pytest -m hardware ...    # прогнать тесты
+> ./restart.sh              # поднять сервер обратно
+> ```
 
 ```bash
 # Из корня проекта rbtm-drivers-next/
 
+# Тесты без железа (заглушки) — можно гонять где угодно
+pytest -v drivers/tests/test_detector_offline.py
+
 # Все тесты оборудования
-pytest --log-cli-level=INFO -s -v drivers/tests/
+pytest --log-cli-level=INFO -s -v -m hardware drivers/tests/
 
 # Один конкретный файл
 pytest --log-cli-level=INFO -s -v drivers/tests/test_shutter.py
@@ -30,9 +45,41 @@ pytest --log-cli-level=INFO -s -v drivers/tests/test_detector.py::test_detector_
 > Флаг `-s` обязателен для вывода `logging.info()` в консоль.  
 > Флаг `--log-cli-level=INFO` выводит логи в реальном времени.
 
+### Маркер `hardware`
+
+Тесты, которым нужно физически подключённое оборудование, помечены
+`@pytest.mark.hardware` (маркер зарегистрирован в [`pytest.ini`](../../pytest.ini)
+в корне проекта):
+
+```bash
+pytest -m hardware drivers/tests/       # только железные
+pytest -m "not hardware" drivers/tests/ # только те, что работают без железа
+```
+
+Модули `test_detector.py` / `test_detector_perf.py` дополнительно
+пропускаются целиком, если XIMEA SDK не установлен.
+
 ## Тесты по устройствам
 
-### `test_detector.py` — детектор XIMEA
+### `test_detector_offline.py` — драйвер детектора без железа
+
+Камера подменяется заглушкой (`monkeypatch` модуля `xiapi` внутри драйвера),
+XIMEA SDK не нужен. Проверяется:
+- кэш модели и размер пикселя, одиночный WARNING при откате на значение по умолчанию;
+- `close_device()` при ошибке конфигурации в `__init__`;
+- ленивый старт захвата и один программный триггер на кадр;
+- смена экспозиции без stop/start;
+- идемпотентность `start_acquisition()` / `stop_acquisition()`;
+- ошибка посреди серии (`Xi_error` и `MemoryError`) → сброс состояния и
+  перезапуск захвата на следующем кадре;
+- зависание `xiGetImage` → `DetectorHangError` + колбэк `on_hang`,
+  зависшая камера больше не трогается;
+- идемпотентный `close()`;
+- формула таймаутов (`sdk_timeout_ms` / `expected_frame_timeout_s`).
+
+---
+
+### `test_detector.py` — детектор XIMEA (маркер `hardware`)
 
 #### `test_detector_connection`
 Быстрая проверка без захвата кадра (~2 с):
@@ -42,9 +89,28 @@ pytest --log-cli-level=INFO -s -v drivers/tests/test_detector.py::test_detector_
 - температуры сенсора и корпуса в диапазоне −50…+50 °C.
 
 #### `test_detector_capture`
-Захват одного кадра с экспозицией 0.1 с:
+Захват кадров с экспозицией 0.1 с:
+- в `__init__` захват не стартует, его поднимает первый `get_frame()`;
 - результат — `numpy.ndarray`, dtype `uint16`, 2D (H×W);
-- логируется среднее и максимальное значение пикселей.
+- второй кадр снимается без повторного старта захвата.
+
+#### `test_detector_explicit_acquisition_cycle`
+Явный цикл `start_acquisition()` → кадры → `stop_acquisition()` (так работает
+Flask-слой в эксперименте): идемпотентность start/stop, смена экспозиции на
+лету, ленивый перезапуск захвата после остановки.
+
+---
+
+### `test_detector_perf.py` — накладные расходы на кадр (маркер `hardware`)
+
+#### `test_detector_frame_overhead[exp=0.1s|1.0s|10.0s]`
+Меряется **overhead = время кадра − экспозиция** (триггер, чтение матрицы,
+передача по FireWire), абсолютные времена не сравниваются:
+- средний overhead ≤ `OVERHEAD_BUDGET_S` (0.75 с);
+- overhead не отрицательный;
+- таблица mean/min/max выводится через `logging.info()`.
+
+Исторический ориентир: удалённый legacy-режим добавлял 100–250 мс на кадр.
 
 ---
 
@@ -110,6 +176,14 @@ pytest --log-cli-level=INFO -s -v drivers/tests/test_detector.py::test_detector_
 - каждое значение — непустой dict;
 - для каждого устройства присутствуют ожидаемые ключи состояния.
 
+#### `test_tomograph_capture_frame`
+`capture_frame(exposure_s)` — кадр и метаданные одним серверным вызовом:
+- кадр — `numpy.ndarray` uint16, 2D;
+- метаданные содержат разделы `image_data`, `object`, `shutter`, `X-ray source`
+  ровно с теми ключами, что раньше собирал Flask-слой;
+- `object` содержит только `angle position` и `horizontal position` —
+  `present` и `vertical position` добавляет Flask-слой.
+
 ## Допуски точности
 
 | Параметр | Допуск |
@@ -122,6 +196,8 @@ pytest --log-cli-level=INFO -s -v drivers/tests/test_detector.py::test_detector_
 
 ## Требования
 
-- Оборудование должно быть физически подключено (кроме `test_tomograph_state` с `mock=True` для source).
+- `tomograph_server` остановлен (см. «Запуск») — иначе устройства заняты сервером.
+- Оборудование должно быть физически подключено (кроме `test_detector_offline.py`
+  и `test_tomograph_state` с `mock=True` для source).
 - Для моторов: объект должен находиться в безопасной позиции для небольшого движения (+2° / +100 шагов).
 - pytest, установленные зависимости проекта (см. [`../../requirements.txt`](../../requirements.txt)).
