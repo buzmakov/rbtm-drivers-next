@@ -2,11 +2,9 @@ import logging
 import time
 import json
 
-import redis
-
 from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
 from .constants import SUCCESSFUL_STOP_MSG
-from hwrpc import HardwareClient, HardwareError, HardwareUnavailable
+from hwrpc import HardwareClient, HardwareError, HardwareUnavailable, make_redis
 
 from autologging import traced
 from . import tomo_logger
@@ -33,7 +31,7 @@ class Tomograph:
     """
 
     def __init__(self, redis_host='redis', redis_port=6379, redis_db=0):
-        self.hw = HardwareClient(redis.Redis(host=redis_host, port=redis_port, db=redis_db),
+        self.hw = HardwareClient(make_redis(redis_host, redis_port, redis_db),
                                  default_timeout_s=RPC_TIMEOUT_S)
         self.current_experiment = None
         self._experiment_starting = False  # поток запущен, current_experiment ещё не присвоен

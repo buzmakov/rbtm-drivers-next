@@ -189,3 +189,11 @@ def test_response_key_expires(rpc):
     fake, _, client = rpc
     client.call('mock')
     assert fake.expired and all(ttl == hwrpc.RESPONSE_TTL_S for ttl in fake.expired.values())
+
+
+def test_make_redis_disables_socket_timeout():
+    """redis-py ≥ 8: DEFAULT_SOCKET_TIMEOUT=5 с ломает BLPOP с таймаутом ≥ 5 с."""
+    client = hwrpc.make_redis('localhost')
+    kwargs = client.connection_pool.connection_kwargs
+    assert kwargs['socket_timeout'] is None
+    assert kwargs['socket_connect_timeout'] == 5.0

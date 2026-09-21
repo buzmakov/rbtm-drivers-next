@@ -57,6 +57,19 @@ class HardwareUnavailable(HardwareError):
         super().__init__('HardwareUnavailable', message)
 
 
+def make_redis(host, port=6379, db=0, connect_timeout_s=5.0):
+    """Клиент Redis для hwrpc.
+
+    ``socket_timeout=None`` обязателен: redis-py ≥ 8 по умолчанию ставит сокету
+    таймаут 5 с, и любой ``BLPOP`` с таймаутом ≥ 5 с обрывается по сокету, после
+    чего redis-py переподключается и повторяет команду — вместо ``None`` через
+    15 с получали ``TimeoutError`` через ~60 с (robotom, 21.09.2026). Таймаут
+    ожидания ответа задаёт сам ``BLPOP`` (серверная сторона), сокет ждёт молча.
+    """
+    return redis.Redis(host=host, port=port, db=db,
+                       socket_timeout=None, socket_connect_timeout=connect_timeout_s)
+
+
 def configure_logging(process_name, log_dir='logs'):
     """Корневой логгер INFO → консоль + ``logs/hwrpc_<process_name>.log``.
 

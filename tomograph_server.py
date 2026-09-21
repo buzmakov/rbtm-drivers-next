@@ -9,9 +9,7 @@ import logging
 import os
 import sys
 
-import redis
-
-from hwrpc import HardwareServer, configure_logging
+from hwrpc import HardwareServer, configure_logging, make_redis
 
 REDIS_HOST = 'redis'   # имя сервиса из docker-compose
 REDIS_PORT = 6379
@@ -37,7 +35,7 @@ def main():
     Detector.set_on_hang(on_detector_hang)
 
     server = HardwareServer(factory=HWTomograph,
-                            redis_client=redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0))
+                            redis_client=make_redis(REDIS_HOST, REDIS_PORT, 0))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

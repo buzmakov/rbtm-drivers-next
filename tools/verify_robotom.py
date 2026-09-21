@@ -41,7 +41,7 @@ PARK_TOLERANCE_STEPS = 1.0
 LINEAR_MOVE_MAX_S = 40.0
 POLL_S = 0.5
 
-PREVIEW_EXPOSURES_MS = (100.0, 500.0)
+PREVIEW_EXPOSURES_MS = (100.0, 500.0, 500.0)   # смена экспозиции → один перезапуск захвата; третий кадр без него
 HV_VOLTAGE_KV = 40.0
 HV_CURRENT_MA = 10.0
 HV_READY_MAX_S = 35 * 60
@@ -255,11 +255,14 @@ def check_g_detector_preview(api, remote):
     seg = remote.segfaults() - seg0
     if seg:
         raise Check('segfault count grew by {}'.format(seg))
-    if stopped:
-        raise Check('acquisition was stopped {} times between previews'.format(stopped))
-    if started > 1:
-        raise Check('acquisition started {} times (expected lazy start once)'.format(started))
-    return 'shapes {}; захват запущен ×{} (лениво), остановлен ×0, segfault +0'.format(shapes, started)
+    # Ленивый старт + один перезапуск при смене экспозиции (FireWire не умеет
+    # direct_update); третий кадр с той же экспозицией — без стоп/старт.
+    changes = len(set(PREVIEW_EXPOSURES_MS)) - 1
+    if stopped > changes or started > 1 + changes:
+        raise Check('acquisition started ×{} / stopped ×{} for {} previews (expected ≤{} / ≤{})'.format(
+            started, stopped, len(PREVIEW_EXPOSURES_MS), 1 + changes, changes))
+    return 'shapes {}; захват запущен ×{}, остановлен ×{} на {} кадров, segfault +0'.format(
+        shapes, started, stopped, len(PREVIEW_EXPOSURES_MS))
 
 
 def check_h_http_errors(api, remote):
