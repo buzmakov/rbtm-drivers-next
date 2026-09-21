@@ -1,6 +1,15 @@
 # pytest --log-cli-level=INFO -s -v test_motors.py
 import logging
-from ..Motors.Motor import HWRotaryMotor, HWLinearMotor
+
+import pytest
+
+# Без libximc (например, на машине разработчика) модуль не собирается — пропускаем.
+try:
+    from ..Motors.Motor import HWRotaryMotor, HWLinearMotor
+except (ImportError, OSError) as _e:
+    pytest.skip('libximc не установлена: {}'.format(_e), allow_module_level=True)
+
+pytestmark = pytest.mark.hardware
 from ..utils import get_angle_motor_config, get_horizontal_motor_config
 
 # Допустимая погрешность возврата в исходную позицию

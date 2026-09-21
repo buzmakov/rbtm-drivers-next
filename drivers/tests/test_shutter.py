@@ -1,11 +1,16 @@
 # pytest --log-cli-level=INFO -s -v test_shutter.py
 import logging
+import os
 from time import sleep
 
 import pytest
 
 from ..XRayShutter.XRayShutter import HWShutter, _DEPRECATED_ALIASES_WARNED
 from ..utils import get_shutter_config
+
+pytestmark = pytest.mark.hardware
+if not os.path.exists(get_shutter_config()['port']):
+    pytest.skip('порт затвора {} не найден'.format(get_shutter_config()['port']), allow_module_level=True)
 
 
 def test_shutter_info():
