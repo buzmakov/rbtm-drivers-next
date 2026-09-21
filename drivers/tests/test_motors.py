@@ -26,7 +26,7 @@ def test_angle_motor():
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
-    assert info.get('error') is None, "get_info() вернул ошибку: {}".format(info)
+    assert info.get('Manufacturer'), "get_info() не вернул производителя: {}".format(info)
 
     status = motor.get_status()
     logging.info("Motor status: %s", status)
@@ -73,7 +73,7 @@ def test_horizontal_motor():
 
     info = motor.get_info()
     logging.info("Motor info: %s", info)
-    assert info.get('error') is None, "get_info() вернул ошибку: {}".format(info)
+    assert info.get('Manufacturer'), "get_info() не вернул производителя: {}".format(info)
 
     status = motor.get_status()
     logging.info("Motor status: %s", status)

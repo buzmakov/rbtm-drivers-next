@@ -103,50 +103,29 @@ class BaseMotor(object):
 
         # Отключить граничные флаги (без аппаратных концевых выключателей)
         edges_settings = edges_settings_t()
-        result = lib.get_edges_settings(device_id, byref(edges_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.get_edges_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.get_edges_settings() error: {}".format(result))
-
+        self._check(lib.get_edges_settings(device_id, byref(edges_settings)),
+                    'get_edges_settings')
         edges_settings.BorderFlags = 0
-        result = lib.set_edges_settings(device_id, byref(edges_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.set_edges_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.set_edges_settings() error: {}".format(result))
+        self._check(lib.set_edges_settings(device_id, byref(edges_settings)),
+                    'set_edges_settings')
 
         # Отключить удерживающий ток (мотор не греется в покое)
         power_settings = power_settings_t()
-        result = lib.get_power_settings(device_id, byref(power_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.get_power_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.get_power_settings() error: {}".format(result))
-
+        self._check(lib.get_power_settings(device_id, byref(power_settings)),
+                    'get_power_settings')
         power_settings.HoldCurrent = 0
-        result = lib.set_power_settings(device_id, byref(power_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.set_power_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.set_power_settings() error: {}".format(result))
+        self._check(lib.set_power_settings(device_id, byref(power_settings)),
+                    'set_power_settings')
 
         # Применить скорость и ускорение из конфигурации к контроллеру
         move_settings = move_settings_t()
-        result = lib.get_move_settings(device_id, byref(move_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.get_move_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.get_move_settings() error: {}".format(result))
-
+        self._check(lib.get_move_settings(device_id, byref(move_settings)),
+                    'get_move_settings')
         move_settings.Speed = self.speed
         move_settings.Accel = self.acceleration
         move_settings.Decel = self.acceleration
-        result = lib.set_move_settings(device_id, byref(move_settings))
-        if not result == Result.Ok:
-            logging.error("Motor.set_move_settings() error: {}".format(result))
-            logging.debug("Motor.open() failed")
-            raise RuntimeError("Motor.set_move_settings() error: {}".format(result))
+        self._check(lib.set_move_settings(device_id, byref(move_settings)),
+                    'set_move_settings')
 
         self.set_microstep_mode_256()
 
@@ -155,9 +134,16 @@ class BaseMotor(object):
     def close(self):
         """
         Закрыть устройство и освободить ресурс контроллера.
-        Вызывается автоматически при завершении программы через atexit.
+
+        atexit оставлен как страховка: сервер железа однопоточный и может быть
+        снят сигналом, а незакрытый контроллер libximc остаётся занятым, и
+        следующее открытие падает с "open failed". Поэтому close() снимает
+        свою регистрацию в atexit (unregister) — после явного закрытия
+        интерпретатор больше не держит ссылку на объект мотора.
+
         :return: код результата libximc (Result.Ok = 0).
         """
+        atexit.unregister(self.close)
         # Повторный вызов (atexit после явного close()) — ничего не делаем
         if self.device_id is None or self.device_id == -1:
             return Result.Ok
@@ -173,76 +159,108 @@ class BaseMotor(object):
         """
         Получить информацию о производителе и версии прошивки контроллера.
 
-        :return: dict с ключами:
-                 Manufacturer, ManufacturerId, ProductDescription, Major, Minor, Release, error.
+        :return: dict с ключами Manufacturer, ManufacturerId, ProductDescription (str),
+                 Major, Minor, Release (int). Значения — как есть, без repr().
+                 При ошибке метод бросает исключение, а не возвращает ключ 'error'.
         :raises RuntimeError: если запрос завершился с ошибкой.
         """
         logging.debug("Get device info")
         x_device_information = device_information_t()
-        result = lib.get_device_information(self.device_id, byref(x_device_information))
-        logging.debug("Motor.get_info() result: " + repr(result))
-        res = {}
-        if result == Result.Ok:
-            res["Manufacturer"] = repr(string_at(x_device_information.Manufacturer).decode())
-            res["ManufacturerId"] = repr(string_at(x_device_information.ManufacturerId).decode())
-            res["ProductDescription"] = repr(string_at(x_device_information.ProductDescription).decode())
-            res["Major"] = repr(x_device_information.Major)
-            res["Minor"] = repr(x_device_information.Minor)
-            res["Release"] = repr(x_device_information.Release)
-            res["error"] = None
-        else:
-            logging.error("Motor.get_info() error: {}".format(result))
-            raise RuntimeError("Motor.get_info() error: {}".format(result))
-        return res
+        self._check(lib.get_device_information(self.device_id, byref(x_device_information)),
+                    'get_info')
+        return {
+            "Manufacturer": string_at(x_device_information.Manufacturer).decode(),
+            "ManufacturerId": string_at(x_device_information.ManufacturerId).decode(),
+            "ProductDescription": string_at(x_device_information.ProductDescription).decode(),
+            "Major": x_device_information.Major,
+            "Minor": x_device_information.Minor,
+            "Release": x_device_information.Release,
+        }
 
     def get_power_info(self):
         """
         Получить настройки питания контроллера (удерживающий ток, задержки, флаги).
 
-        :return: dict с ключами:
-                 Power.HoldCurrent, Power.CurrReductDelay, Power.PowerOffDelay,
-                 Power.CurrentSetTime, Power.PowerFlags.
+        :return: dict с ключами (все значения — int):
+                 Power.HoldCurrent (% от номинального тока),
+                 Power.CurrReductDelay (мс), Power.PowerOffDelay (с),
+                 Power.CurrentSetTime (мс), Power.PowerFlags (битовые флаги).
         :raises RuntimeError: если запрос завершился с ошибкой.
         """
         logging.debug("Get device power info")
         power_settings = power_settings_t()
-        result = lib.get_power_settings(self.device_id, byref(power_settings))
-        logging.debug("Motor.get_power_info() result: " + repr(result))
-        res = {}
-        if result == Result.Ok:
-            res["Power.HoldCurrent"] = repr(power_settings.HoldCurrent)
-            res["Power.CurrReductDelay"] = repr(power_settings.CurrReductDelay)
-            res["Power.PowerOffDelay"] = repr(power_settings.PowerOffDelay)
-            res["Power.CurrentSetTime"] = repr(power_settings.CurrentSetTime)
-            res["Power.PowerFlags"] = repr(bin(power_settings.PowerFlags))
-        else:
-            logging.error("Motor.get_power_info() error: {}".format(result))
-            raise RuntimeError("Motor.get_power_info() error: {}".format(result))
-        return res
+        self._check(lib.get_power_settings(self.device_id, byref(power_settings)),
+                    'get_power_info')
+        return {
+            "Power.HoldCurrent": power_settings.HoldCurrent,
+            "Power.CurrReductDelay": power_settings.CurrReductDelay,
+            "Power.PowerOffDelay": power_settings.PowerOffDelay,
+            "Power.CurrentSetTime": power_settings.CurrentSetTime,
+            "Power.PowerFlags": power_settings.PowerFlags,
+        }
 
     def get_status(self):
         """
         Получить текущий статус контроллера (ток двигателя, напряжение питания, флаги состояния).
 
-        :return: dict с ключами:
+        :return: dict с ключами (все значения — int):
                  Status.Ipwr (ток двигателя, мА),
                  Status.Upwr (напряжение питания, мВ),
                  Status.Iusb (ток USB, мА),
-                 Status.Flags (битовые флаги StateFlags).
+                 Status.Flags (битовые флаги StateFlags),
+                 Status.MoveSts (флаги движения MoveState),
+                 Status.MvCmdSts (статус последней команды движения MvcmdStatus).
         :raises RuntimeError: если запрос завершился с ошибкой.
         """
         logging.debug("Get status")
         x_status = status_t()
-        result = lib.get_status(self.device_id, byref(x_status))
+        self._check(lib.get_status(self.device_id, byref(x_status)), 'get_status')
+        return {
+            "Status.Ipwr": x_status.Ipwr,
+            "Status.Upwr": x_status.Upwr,
+            "Status.Iusb": x_status.Iusb,
+            "Status.Flags": x_status.Flags,
+            "Status.MoveSts": x_status.MoveSts,
+            "Status.MvCmdSts": x_status.MvCmdSts,
+        }
+
+    # ─── State ───────────────────────────────────────────────────────────────────
+
+    #: Ключи, которые возвращает get_state(). Подклассы дополняют список своими
+    #: параметрами; значение каждого ключа, кроме вычисляемых, — одноимённый атрибут.
+    STATE_KEYS = ('device_name', 'speed', 'acceleration', 'position')
+
+    def _state_value(self, option):
+        """Вычислить значение одного ключа get_state().
+
+        Подклассы переопределяют метод для ключей, которых нет среди атрибутов
+        (например, 'position' в своих единицах).
+        """
+        if option == 'position':
+            return self.get_position()
+        return getattr(self, option)
+
+    def get_state(self, options=None):
+        """
+        Получить состояние мотора по запрошенным параметрам.
+
+        :param options: list[str] | str | None — список запрашиваемых параметров
+                        из STATE_KEYS конкретного класса.
+                        None — вернуть все параметры (по умолчанию).
+        :return: dict {option: value, ...}. Для неизвестного ключа значение —
+                 {'error': 'Unsupported option ...'}.
+        """
+        if options is None:
+            options = list(self.STATE_KEYS)
+        if not isinstance(options, (list, tuple)):
+            options = [options]
+
         res = {}
-        if result == Result.Ok:
-            res["Status.Ipwr"] = repr(x_status.Ipwr)
-            res["Status.Upwr"] = repr(x_status.Upwr)
-            res["Status.Iusb"] = repr(x_status.Iusb)
-            res["Status.Flags"] = repr(bin(x_status.Flags))
-        else:
-            logging.error("Motor.get_status() error: {}".format(result))
-            raise RuntimeError("Motor.get_status() error: {}".format(result))
+        for option in options:
+            if option in self.STATE_KEYS:
+                res[option] = self._state_value(option)
+            else:
+                res[option] = {'error': 'Unsupported option {}'.format(option)}
         return res
 
     # ─── Waiting for the controller ──────────────────────────────────────────────
@@ -497,39 +515,13 @@ class HWRotaryMotor(BaseMotor):
 
     # ─── State ───────────────────────────────────────────────────────────────────
 
-    def get_state(self, options=None):
-        """
-        Получить состояние вращательного мотора по запрошенным параметрам.
+    #: 'position' — угол в градусах [0, 360).
+    STATE_KEYS = ('device_name', 'steps_on_deg', 'speed', 'acceleration', 'position')
 
-        :param options: list[str] | str | None — список запрашиваемых параметров.
-                        Допустимые значения: 'device_name', 'steps_on_deg', 'speed',
-                        'acceleration', 'position'.
-                        None — вернуть все параметры (по умолчанию).
-                        'position' возвращается в градусах.
-        :return: dict {option: value, ...}. Неизвестные опции возвращают {'error': ...}.
-        """
-        if options is None:
-            options = ['device_name', 'steps_on_deg',
-                       'speed', 'acceleration', 'position']
-        res = {}
-        if not isinstance(options, (list, tuple)):
-            options = [options]
-
-        for option in options:
-            if option == 'device_name':
-                s = self.device_name
-            elif option == 'steps_on_deg':
-                s = self.steps_on_deg
-            elif option == 'speed':
-                s = self.speed
-            elif option == 'acceleration':
-                s = self.acceleration
-            elif option == 'position':
-                s = self.get_position_deg()
-            else:
-                s = {'error': 'Unsupported option {}'.format(option)}
-            res[option] = s
-        return res
+    def _state_value(self, option):
+        if option == 'position':
+            return self.get_position_deg()
+        return super()._state_value(option)
 
 
 class HWLinearMotor(BaseMotor):
@@ -642,44 +634,12 @@ class HWLinearMotor(BaseMotor):
 
     # ─── State ───────────────────────────────────────────────────────────────────
 
-    def get_state(self, options=None):
-        """
-        Получить состояние линейного мотора по запрошенным параметрам.
+    #: 'position' — в шагах (основная единица публичного API),
+    #: 'position_mm' — та же позиция в миллиметрах.
+    STATE_KEYS = ('device_name', 'steps_per_mm', 'move_outside_mm',
+                  'speed', 'acceleration', 'position', 'position_mm')
 
-        :param options: list[str] | str | None — список запрашиваемых параметров.
-                        Допустимые значения: 'device_name', 'steps_per_mm', 'move_outside_mm',
-                        'speed', 'acceleration', 'position'.
-                        None — вернуть все параметры (по умолчанию).
-                        'position' возвращается в миллиметрах.
-        :return: dict {option: value, ...}. Неизвестные опции возвращают {'error': ...}.
-        """
-        if options is None:
-            options = ['device_name', 'steps_per_mm', 'move_outside_mm',
-                       'speed', 'acceleration', 'position']
-        res = {}
-        if not isinstance(options, (list, tuple)):
-            options = [options]
-
-        for option in options:
-            if option == 'device_name':
-                s = self.device_name
-            elif option == 'steps_per_mm':
-                s = self.steps_per_mm
-            elif option == 'move_outside_mm':
-                s = self.move_outside_mm
-            elif option == 'speed':
-                s = self.speed
-            elif option == 'acceleration':
-                s = self.acceleration
-            elif option == 'position':
-                s = self.get_position_mm()
-            else:
-                s = {'error': 'Unsupported option {}'.format(option)}
-            res[option] = s
-        return res
-
-
-# ─── Backward compatibility alias ────────────────────────────────────────────
-# Старый код импортирует HWMotor — он продолжает работать как HWRotaryMotor.
-# Новый код должен использовать HWRotaryMotor или HWLinearMotor явно.
-HWMotor = HWRotaryMotor
+    def _state_value(self, option):
+        if option == 'position_mm':
+            return self.get_position_mm()
+        return super()._state_value(option)
