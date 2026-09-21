@@ -2,7 +2,8 @@ import logging
 import atexit
 import time
 
-from .motor_math import move_timeout_s, to_steps, from_steps
+from .motor_math import (move_timeout_s, to_steps, from_steps,
+                         normalize_deg, shortest_delta_deg)
 
 try:
     from .pyximc import lib, get_position_t, byref, Result, cast, POINTER, c_int, \
@@ -435,13 +436,18 @@ class HWRotaryMotor(BaseMotor):
 
     def get_position_deg(self):
         """
-        Получить текущую абсолютную позицию мотора в градусах.
+        Получить текущий угол, нормализованный к диапазону [0, 360).
 
-        :return: float — угол в градусах.
+        Счётчик шагов контроллера не ограничен: после нескольких оборотов
+        он уходит далеко за 32400 шагов. Наружу отдаётся именно угол
+        в [0, 360), как его ожидает UI и метаданные кадра.
+        Ненормализованную позицию можно получить через get_position() (шаги).
+
+        :return: float — угол в градусах, 0 <= angle < 360.
         :raises RuntimeError: если запрос к контроллеру завершился с ошибкой.
         """
         logging.debug("HWRotaryMotor.get_position_deg() starting...")
-        res = self.get_position() / self.steps_on_deg
+        res = normalize_deg(self.get_position() / self.steps_on_deg)
         logging.debug("HWRotaryMotor.get_position_deg() finished.")
         return res
 
@@ -449,16 +455,30 @@ class HWRotaryMotor(BaseMotor):
 
     def move_to_position_deg(self, position, blocking=True):
         """
-        Переместить мотор на абсолютную позицию в градусах.
+        Повернуть мотор к заданному углу по кратчайшему пути.
 
-        Дробная часть угла корректно конвертируется в микрошаги uPosition ∈ [0, 255].
+        Целевой угол трактуется как положение на окружности: смещение
+        считается в (-180, 180] от текущего нормализованного угла, поэтому
+        переход 359.5° → 0° — это движение на +0.5°, а не полный оборот
+        назад (≈65 с, дольше таймаута RPC).
 
-        :param position: float — угловая позиция в градусах.
+        Абсолютная позиция контроллера при этом не сбрасывается: команда
+        уходит на current_steps + delta_steps, счётчик шагов продолжает расти
+        (или убывать) — обнуляет его только set_zero().
+
+        :param position: float — целевой угол в градусах (нормализуется).
         :param blocking: bool — если True (по умолчанию), ждать завершения движения.
         :raises RuntimeError: если команда отклонена контроллером.
+        :raises MotorTimeoutError: при blocking=True, если мотор не остановился вовремя.
         """
         logging.debug("HWRotaryMotor.move_to_position_deg() starting...")
-        steps, usteps = self._deg_to_steps(position)
+        current_steps = self.get_position()
+        current_deg = normalize_deg(current_steps / self.steps_on_deg)
+        delta_deg = shortest_delta_deg(current_deg, position)
+        logging.debug("HWRotaryMotor.move_to_position_deg(): %.4f° -> %.4f° (delta %.4f°)",
+                      current_deg, normalize_deg(position), delta_deg)
+
+        steps, usteps = to_steps(current_steps + delta_deg * self.steps_on_deg)
         self.move_to_position(steps, usteps, blocking=blocking)
         logging.debug("HWRotaryMotor.move_to_position_deg() finished.")
 

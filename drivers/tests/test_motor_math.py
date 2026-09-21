@@ -5,7 +5,8 @@
 не импортирует ``pyximc``.
 """
 from ..Motors.motor_math import (MICROSTEPS_PER_STEP, move_timeout_s,
-                                 to_steps, from_steps)
+                                 to_steps, from_steps,
+                                 normalize_deg, shortest_delta_deg)
 
 
 # ─── to_steps / from_steps ───────────────────────────────────────────────────
@@ -67,3 +68,59 @@ def test_move_timeout_is_monotonic():
 def test_move_timeout_with_zero_speed():
     """Нулевая/некорректная скорость не должна давать деление на ноль."""
     assert move_timeout_s(1000, 0) == 5.0
+
+
+# ─── normalize_deg ───────────────────────────────────────────────────────────
+
+def test_normalize_deg():
+    assert normalize_deg(0.0) == 0.0
+    assert normalize_deg(359.5) == 359.5
+    assert normalize_deg(360.0) == 0.0
+    assert normalize_deg(720.5) == 0.5
+    assert normalize_deg(-0.5) == 359.5
+    assert normalize_deg(-360.0) == 0.0
+    assert normalize_deg(-721.0) == 359.0
+
+
+def test_normalize_deg_always_in_range():
+    for angle in (-1e-15, -1e-9, 1e-9, -360.0 - 1e-13, 32400.0, -32400.5):
+        res = normalize_deg(angle)
+        assert 0.0 <= res < 360.0, '{} -> {}'.format(angle, res)
+
+
+# ─── shortest_delta_deg ──────────────────────────────────────────────────────
+
+def test_shortest_delta_takes_short_way_over_zero():
+    """Главный случай: возврат 359.5° -> 0° должен быть +0.5°, а не -359.5°."""
+    assert shortest_delta_deg(359.5, 0.0) == 0.5
+    assert shortest_delta_deg(0.0, 359.5) == -0.5
+    assert shortest_delta_deg(350.0, 10.0) == 20.0
+    assert shortest_delta_deg(10.0, 350.0) == -20.0
+
+
+def test_shortest_delta_simple_cases():
+    assert shortest_delta_deg(0.0, 0.0) == 0.0
+    assert shortest_delta_deg(0.0, 90.0) == 90.0
+    assert shortest_delta_deg(90.0, 0.0) == -90.0
+    assert shortest_delta_deg(45.0, 45.0) == 0.0
+
+
+def test_shortest_delta_half_turn_is_positive():
+    """Ровно 180° неоднозначны — договариваемся крутить вперёд."""
+    assert shortest_delta_deg(0.0, 180.0) == 180.0
+    assert shortest_delta_deg(180.0, 0.0) == 180.0
+
+
+def test_shortest_delta_range_and_target():
+    for current in (0.0, 0.5, 90.0, 179.9, 180.0, 270.0, 359.9):
+        for target in (0.0, 1.0, 45.5, 180.0, 359.5, -10.0, 720.25):
+            delta = shortest_delta_deg(current, target)
+            assert -180.0 < delta <= 180.0
+            # смещение приводит именно в запрошенный угол
+            assert abs(normalize_deg(current + delta) - normalize_deg(target)) < 1e-9 \
+                or abs(normalize_deg(current + delta) - normalize_deg(target) - 360.0) < 1e-9
+
+
+def test_shortest_delta_accepts_unnormalized_input():
+    assert shortest_delta_deg(719.5, 360.0) == 0.5
+    assert shortest_delta_deg(-0.5, 0.0) == 0.5

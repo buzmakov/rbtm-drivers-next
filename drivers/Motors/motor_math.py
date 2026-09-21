@@ -52,6 +52,35 @@ def to_steps(total_steps):
     return sign * steps, sign * usteps
 
 
+def normalize_deg(angle_deg):
+    """Привести угол к диапазону [0, 360).
+
+    :param angle_deg: float — угол в градусах (любой знак и величина).
+    :return: float — угол в [0, 360).
+    """
+    res = float(angle_deg) % 360.0
+    # для очень малых отрицательных углов x % 360.0 округляется ровно до 360.0
+    if res >= 360.0:
+        return 0.0
+    return res
+
+
+def shortest_delta_deg(current_deg, target_deg):
+    """Кратчайшее угловое смещение от текущего угла к целевому.
+
+    Результат лежит в (-180, 180]: например, из 359.5° в 0° это +0.5°,
+    а не -359.5° (полный оборот назад ≈ 65 с на угловом моторе томографа).
+
+    :param current_deg: float — текущий угол, градусы (нормализация не нужна).
+    :param target_deg: float — целевой угол, градусы (нормализация не нужна).
+    :return: float — смещение в градусах, (-180, 180].
+    """
+    delta = (float(target_deg) - float(current_deg)) % 360.0
+    if delta > 180.0:
+        delta -= 360.0
+    return delta
+
+
 def from_steps(position, uposition=0):
     """Собрать дробное число шагов из (Position, uPosition).
 
