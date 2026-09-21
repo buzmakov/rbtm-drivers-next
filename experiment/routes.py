@@ -356,10 +356,9 @@ def experiment_start(tomo_num):
         except ModExpError as e:
             return e.create_response()
 
-        target = (tomograph.carry_out_advanced_experiment if exp_param['advanced']
-                  else tomograph.carry_out_simple_experiment)
         tomograph.mark_experiment_starting()
-        threading.Thread(target=target, args=(exp_param,), name='experiment', daemon=True).start()
+        threading.Thread(target=tomograph.carry_out_experiment, args=(exp_param,),
+                         name='experiment', daemon=True).start()
 
     return create_response(True)
 

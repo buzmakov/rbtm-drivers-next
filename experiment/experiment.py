@@ -84,24 +84,25 @@ def safe_hardware_shutdown(tomograph):
 
 
 @traced(tomo_logger.logger)
-class Experiment:
-    def __init__(self, _tomograph, exp_param):
+class BaseExperiment:
+    """Общая часть простого и продвинутого экспериментов.
+
+    Подкласс задаёт ``frames_total`` (в ``__init__``) и реализует
+    ``_acquire()`` — саму последовательность съёмки. Всё остальное —
+    включение источника, статус для UI, отправка кадров в storage,
+    безопасное выключение железа — здесь.
+    """
+
+    # Пауза после закрытия затвора перед dark-кадрами: реле Ke-USB24R
+    # переключается мгновенно, но команда подтверждается без ожидания.
+    SHUTTER_SETTLE_S = 0.5
+
+    def __init__(self, _tomograph, exp_param, frames_total, first_exposure):
         self.tomograph: tomograph.Tomograph = _tomograph
         self.exp_id = exp_param['exp_id']
-
-        self.DARK_count = exp_param['DARK']['count']
-        self.DARK_exposure = exp_param['DARK']['exposure']
-
-        self.EMPTY_count = exp_param['EMPTY']['count']
-        self.EMPTY_exposure = exp_param['EMPTY']['exposure']
-
-        self.DATA_step_count = exp_param['DATA']['step count']
-        self.DATA_exposure = exp_param['DATA']['exposure']
-        self.DATA_angle_step = exp_param['DATA']['angle step']
-        self.DATA_count_per_step = exp_param['DATA']['count per step']
-
-        frames_total_count = self.DARK_count + self.EMPTY_count + self.DATA_step_count * self.DATA_count_per_step
-        self.total_digits_count = len(str(abs(frames_total_count - 1)))
+        self.frames_total = frames_total
+        self.first_exposure = first_exposure   # мс, для старта захвата детектора
+        self.total_digits_count = len(str(max(frames_total - 1, 0)))
 
         self.frame_num = 0
         self.to_be_stopped = False
@@ -110,22 +111,22 @@ class Experiment:
 
         # --- Статус и последний кадр (thread-safe) ---
         self._status_lock = threading.Lock()
-        self.last_frame = None  # numpy array последнего снятого кадра (для preview)
+        self.last_frame = None  # downsampled numpy array последнего кадра (для preview)
         self._start_time = None
         self.status_dict = {
             'exp_id': str(self.exp_id),
             'frame_num': 0,
-            'total_frames': frames_total_count,
+            'total_frames': frames_total,
             'current_mode': 'pending',
             'current_angle': 0.0,
             'start_time': None,
             'timeline': [],
-            # Unix timestamp последнего снятого кадра (time.time()).
-            # Используется фронтендом для детекции зависания:
-            # если now() - last_frame_at > порога → показываем предупреждение.
-            # None до первого кадра.
+            # Unix timestamp последнего снятого кадра. Фронтенд сравнивает
+            # с текущим временем: большая разница → предупреждение о зависании.
             'last_frame_at': None,
         }
+
+    # -- статус ------------------------------------------------------------
 
     def _update_status(self, mode=None, angle=None):
         """Обновить status_dict потокобезопасно."""
@@ -139,11 +140,7 @@ class Experiment:
             if self._start_time is None:
                 self._start_time = time.time()
                 self.status_dict['start_time'] = self._start_time
-            # Фиксируем момент снятия кадра. Фронтенд сравнивает это значение
-            # с текущим временем браузера; если разница превышает порог —
-            # показывается предупреждение о возможном зависании.
             self.status_dict['last_frame_at'] = time.time()
-            # Обновляем таймлайн: добавляем к последней группе или создаём новую
             tl = self.status_dict['timeline']
             if mode is not None:
                 if tl and tl[-1]['mode'] == mode:
@@ -156,107 +153,123 @@ class Experiment:
         with self._status_lock:
             return dict(self.status_dict)
 
-    def get_and_send_frame(self, exposure, mode):
-        numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=None)
-        numpy_image_with_metadata['mode'] = mode
-        numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
+    # -- кадры -------------------------------------------------------------
 
-        # Сохраняем последний кадр для preview (downsampled)
+    def get_and_send_frame(self, exposure, mode):
+        frame = self.tomograph.get_frame(exposure=exposure, with_open_shutter=None)
+        frame['mode'] = mode
+        frame['number'] = str(self.frame_num).zfill(self.total_digits_count)
+
+        # Последний кадр для preview (downsampled)
         try:
-            raw = numpy_image_with_metadata['image_data']['raw_image']
-            self.last_frame = raw[::4, ::4].copy()
+            self.last_frame = frame['image_data']['raw_image'][::4, ::4].copy()
         except Exception:
             pass
 
-        # Обновляем статус
         angle = None
         try:
-            angle = float(numpy_image_with_metadata.get('object', {}).get('angle position', 0.0) or 0.0)
+            angle = float(frame.get('object', {}).get('angle position', 0.0) or 0.0)
         except (TypeError, ValueError):
             pass
         self._update_status(mode=mode, angle=angle)
-
         self.frame_num += 1
 
-        # Ждём завершения отправки предыдущего кадра перед стартом следующей
+        # Отправка идёт в фоне, пока снимается следующий кадр; перед стартом
+        # новой отправки ждём предыдущую — в storage уходит по одному кадру.
         if self.worker_thread is not None:
             self.worker_thread.join()
-
-        self.worker_thread = threading.Thread(
-            target=prepare_send_frame,
-            args=(numpy_image_with_metadata, self),
-            daemon=False,
-        )
+        self.worker_thread = threading.Thread(target=prepare_send_frame, args=(frame, self), daemon=False)
         self.worker_thread.start()
+
+    def _collect_series(self, count, exposure, mode):
+        for _ in range(count):
+            if self.to_be_stopped:
+                return
+            self.get_and_send_frame(exposure=exposure, mode=mode)
+
+    def _collect_dark(self, count, exposure):
+        self.tomograph.close_shutter(0)
+        time.sleep(self.SHUTTER_SETTLE_S)
+        self._collect_series(count, exposure, 'dark')
+
+    def _collect_empty(self, count, exposure):
+        """Серия empty: образец убран, затвор открыт; в конце — затвор закрыт, образец возвращён."""
+        self.tomograph.move_away()
+        self.tomograph.open_shutter(0)
+        self._collect_series(count, exposure, 'empty')
+        self.tomograph.close_shutter(0)
+        self.tomograph.move_back()
+
+    # -- запуск ------------------------------------------------------------
+
+    def _acquire(self):
+        raise NotImplementedError
 
     def run(self):
         self.to_be_stopped = False
         self.stop_exception = None
+        self._start_time = time.time()
+        with self._status_lock:
+            self.status_dict['start_time'] = self._start_time
         try:
             self.tomograph.source_power_on()
             self.tomograph.source_wait_for_ready()
             self.tomograph.reset_to_zero_angle()
             # Один xiStartAcquisition на весь эксперимент (см. Tomograph.detector_start_acquisition)
-            self.tomograph.detector_start_acquisition(self.DARK_exposure)
-            self.collect_dark_frames()
-            if not self.to_be_stopped:
-                self.collect_empty_frames()
-            if not self.to_be_stopped:
-                self.collect_data_frames()
+            self.tomograph.detector_start_acquisition(self.first_exposure)
+            self._acquire()
         finally:
             # Выполняется всегда — в том числе при падении tomograph_server
             # посреди съёмки (07.09.2026 источник остался под ВН с открытым
             # затвором, пока хост не выключили вручную).
             safe_hardware_shutdown(self.tomograph)
-        # Если была запрошена остановка — сообщаем об этом
+            if self.worker_thread is not None:
+                self.worker_thread.join()
         if self.to_be_stopped and self.stop_exception is not None:
             raise self.stop_exception
-        return
+
+
+class Experiment(BaseExperiment):
+    """Простой режим: dark × N, empty × N, затем все data подряд."""
+
+    def __init__(self, _tomograph, exp_param):
+        self.DARK_count = exp_param['DARK']['count']
+        self.DARK_exposure = exp_param['DARK']['exposure']
+        self.EMPTY_count = exp_param['EMPTY']['count']
+        self.EMPTY_exposure = exp_param['EMPTY']['exposure']
+        self.DATA_step_count = exp_param['DATA']['step count']
+        self.DATA_exposure = exp_param['DATA']['exposure']
+        self.DATA_angle_step = exp_param['DATA']['angle step']
+        self.DATA_count_per_step = exp_param['DATA']['count per step']
+
+        frames_total = self.DARK_count + self.EMPTY_count + self.DATA_step_count * self.DATA_count_per_step
+        super().__init__(_tomograph, exp_param, frames_total, self.DARK_exposure)
+
+    def _acquire(self):
+        self._collect_dark(self.DARK_count, self.DARK_exposure)
+        if not self.to_be_stopped:
+            self._collect_empty(self.EMPTY_count, self.EMPTY_exposure)
+        if not self.to_be_stopped:
+            self.collect_data_frames()
 
     def collect_data_frames(self):
         initial_angle = self.tomograph.get_angle()
         initial_angle = initial_angle if initial_angle is not None else 0
-        data_angles = np.round((np.arange(0, self.DATA_step_count)) * self.DATA_angle_step + initial_angle, 2) % 360
-
-        exp_angles = data_angles
+        data_angles = np.round(np.arange(0, self.DATA_step_count) * self.DATA_angle_step + initial_angle, 2) % 360
 
         self.tomograph.move_back()
         self.tomograph.open_shutter(0)
-        for iangle, current_angle in enumerate(exp_angles):
+        for iangle, current_angle in enumerate(data_angles):
             if self.to_be_stopped:
                 break
-            tomo_logger.info(f'Collecting frame {iangle}/{len(exp_angles)}')
+            tomo_logger.info(f'Collecting frame {iangle}/{len(data_angles)}')
             # blocking=True: мотор должен достичь целевого угла ДО съёмки кадра.
-            # При blocking=False кадры снимались бы во время вращения — данные испорчены.
             self.tomograph.set_angle(float(current_angle), blocking=True)
-
-            for j in range(0, self.DATA_count_per_step):
-                self.get_and_send_frame(exposure=self.DATA_exposure, mode='data')
-
+            self._collect_series(self.DATA_count_per_step, self.DATA_exposure, 'data')
         self.tomograph.close_shutter(0)
 
-    def collect_empty_frames(self):
-        self.tomograph.move_away()
-        self.tomograph.open_shutter(0)
-        for i in range(0, self.EMPTY_count):
-            if self.to_be_stopped:
-                break
-            self.get_and_send_frame(self.EMPTY_exposure, mode='empty')
-        self.tomograph.close_shutter(0)
-        self.tomograph.move_back()
 
-    def collect_dark_frames(self):
-        self.tomograph.close_shutter(0)
-        time.sleep(0.5)
-        for _ in range(0, self.DARK_count):
-            if self.to_be_stopped:
-                break
-            self.get_and_send_frame(exposure=self.DARK_exposure, mode='dark')
-
-
-
-@traced(tomo_logger.logger)
-class AdvancedExperiment:
+class AdvancedExperiment(BaseExperiment):
     """
     Продвинутый режим эксперимента.
 
@@ -273,9 +286,6 @@ class AdvancedExperiment:
     """
 
     def __init__(self, _tomograph, exp_param):
-        self.tomograph: tomograph.Tomograph = _tomograph
-        self.exp_id = exp_param['exp_id']
-
         self.exposure = exp_param['exposure']           # мс, единая для всех
         self.series_length = exp_param['series_length']  # кол-во dark/empty в серии
         self.data_total = exp_param['data_total']        # число угловых позиций
@@ -292,154 +302,23 @@ class AdvancedExperiment:
             + num_empty_inserts * self.series_length                 # периодические empty
             + num_empty_inserts * self.data_count_per_step           # data_check
         )
-        self.total_digits_count = len(str(max(frames_total - 1, 0)))
+        super().__init__(_tomograph, exp_param, frames_total, self.exposure)
 
-        self.frame_num = 0
-        self.to_be_stopped = False
-        self.stop_exception = None
-        self.worker_thread = None   # threading.Thread для отправки кадра в storage
-
-        # --- Статус и последний кадр (thread-safe) ---
-        self._status_lock = threading.Lock()
-        self.last_frame = None
-        self._start_time = None
-        self.status_dict = {
-            'exp_id': str(self.exp_id),
-            'frame_num': 0,
-            'total_frames': frames_total,
-            'current_mode': 'pending',
-            'current_angle': 0.0,
-            'start_time': None,
-            'timeline': [],
-            # Unix timestamp последнего снятого кадра (time.time()).
-            # Используется фронтендом для детекции зависания:
-            # если now() - last_frame_at > порога → показываем предупреждение.
-            # None до первого кадра.
-            'last_frame_at': None,
-        }
-
-    def _update_status(self, mode=None, angle=None):
-        with self._status_lock:
-            # frame_num ещё не инкрементирован — показываем уже снятых = frame_num + 1
-            self.status_dict['frame_num'] = self.frame_num + 1
-            if mode is not None:
-                self.status_dict['current_mode'] = mode
-            if angle is not None:
-                self.status_dict['current_angle'] = angle
-            if self._start_time is None:
-                self._start_time = time.time()
-                self.status_dict['start_time'] = self._start_time
-            # Фиксируем момент снятия кадра. Фронтенд сравнивает это значение
-            # с текущим временем браузера; если разница превышает порог —
-            # показывается предупреждение о возможном зависании.
-            self.status_dict['last_frame_at'] = time.time()
-            tl = self.status_dict['timeline']
-            if mode is not None:
-                if tl and tl[-1]['mode'] == mode:
-                    tl[-1]['count'] += 1
-                else:
-                    tl.append({'mode': mode, 'count': 1})
-
-    def get_status(self):
-        with self._status_lock:
-            return dict(self.status_dict)
-
-    def get_and_send_frame(self, exposure, mode):
-        numpy_image_with_metadata = self.tomograph.get_frame(exposure=exposure, with_open_shutter=None)
-        numpy_image_with_metadata['mode'] = mode
-        numpy_image_with_metadata['number'] = str(self.frame_num).zfill(self.total_digits_count)
-
-        # Сохраняем последний кадр для preview
-        try:
-            raw = numpy_image_with_metadata['image_data']['raw_image']
-            self.last_frame = raw[::4, ::4].copy()
-        except Exception:
-            pass
-
-        # Обновляем статус
-        angle = None
-        try:
-            angle = float(numpy_image_with_metadata.get('object', {}).get('angle position', 0.0) or 0.0)
-        except (TypeError, ValueError):
-            pass
-        self._update_status(mode=mode, angle=angle)
-
-        self.frame_num += 1
-
-        # Ждём завершения отправки предыдущего кадра перед стартом следующей
-        if self.worker_thread is not None:
-            self.worker_thread.join()
-
-        self.worker_thread = threading.Thread(
-            target=prepare_send_frame,
-            args=(numpy_image_with_metadata, self),
-            daemon=False,
-        )
-        self.worker_thread.start()
-
-    def run(self):
-        self.to_be_stopped = False
-        self.stop_exception = None
-        self._start_time = time.time()
-        with self._status_lock:
-            self.status_dict['start_time'] = self._start_time
-
-        try:
-            self.tomograph.source_power_on()
-            self.tomograph.source_wait_for_ready()
-            self.tomograph.reset_to_zero_angle()
-            # Один xiStartAcquisition на весь эксперимент (см. Tomograph.detector_start_acquisition)
-            self.tomograph.detector_start_acquisition(self.exposure)
-
-            self._collect_dark_frames()
-            if not self.to_be_stopped:
-                self._collect_initial_empty_frames()
-            if not self.to_be_stopped:
-                self._collect_data_frames()
-        finally:
-            # Выполняется всегда — см. комментарий в Experiment.run()
-            safe_hardware_shutdown(self.tomograph)
-
-        # Если была запрошена остановка — сообщаем об этом
-        if self.to_be_stopped and self.stop_exception is not None:
-            raise self.stop_exception
-
-    def _collect_dark_frames(self):
-        self.tomograph.close_shutter(0)
-        time.sleep(0.5)
-        for _ in range(self.series_length):
-            if self.to_be_stopped:
-                break
-            self.get_and_send_frame(exposure=self.exposure, mode='dark')
-
-    def _collect_initial_empty_frames(self):
-        self.tomograph.move_away()
-        self.tomograph.open_shutter(0)
-        for _ in range(self.series_length):
-            if self.to_be_stopped:
-                break
-            self.get_and_send_frame(exposure=self.exposure, mode='empty')
-        self.tomograph.close_shutter(0)
-        self.tomograph.move_back()
+    def _acquire(self):
+        self._collect_dark(self.series_length, self.exposure)
+        if not self.to_be_stopped:
+            self._collect_empty(self.series_length, self.exposure)
+        if not self.to_be_stopped:
+            self._collect_data_frames()
 
     def _collect_periodic_empty_and_check(self):
         """Вставка empty-серии + data_check при том же угле."""
         self.tomograph.close_shutter(0)
-        self.tomograph.move_away()
-        self.tomograph.open_shutter(0)
-        for _ in range(self.series_length):
-            if self.to_be_stopped:
-                break
-            self.get_and_send_frame(exposure=self.exposure, mode='empty')
-        self.tomograph.close_shutter(0)
-        self.tomograph.move_back()
+        self._collect_empty(self.series_length, self.exposure)
         if not self.to_be_stopped:
             # Контрольные кадры при том же угле (не меняем угол)
             self.tomograph.open_shutter(0)
-            for _ in range(self.data_count_per_step):
-                if self.to_be_stopped:
-                    break
-                self.get_and_send_frame(exposure=self.exposure, mode='data_check')
+            self._collect_series(self.data_count_per_step, self.exposure, 'data_check')
 
     def _collect_data_frames(self):
         self.tomograph.move_back()
@@ -452,14 +331,8 @@ class AdvancedExperiment:
             current_angle = round(pos_index * self.data_angle_step, 4) % 360
             # blocking=True: мотор должен достичь целевого угла ДО съёмки кадра.
             self.tomograph.set_angle(float(current_angle), blocking=True)
-
             tomo_logger.info(f'Advanced: data position {pos_index}/{self.data_total}, angle={current_angle}')
-
-            for _ in range(self.data_count_per_step):
-                if self.to_be_stopped:
-                    break
-                self.get_and_send_frame(exposure=self.exposure, mode='data')
-
+            self._collect_series(self.data_count_per_step, self.exposure, 'data')
             if self.to_be_stopped:
                 break
 

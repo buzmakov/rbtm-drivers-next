@@ -371,44 +371,24 @@ class Tomograph:
         frame['image_data']['raw_image'] = raw_image
         return frame
 
-    def carry_out_simple_experiment(self, exp_param):
-        self.current_experiment = Experiment(_tomograph=self, exp_param=exp_param)
+    def carry_out_experiment(self, exp_param):
+        """Провести эксперимент (в отдельном потоке) и сообщить storage о завершении."""
+        cls = AdvancedExperiment if exp_param.get('advanced') else Experiment
+        self.current_experiment = cls(_tomograph=self, exp_param=exp_param)
         self._experiment_starting = False
         exp_id = self.current_experiment.exp_id
-        event_for_send = None
         try:
             self.current_experiment.run()
             event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
         except ModExpError as e:
             event_for_send = e.to_event_dict(exp_id)
         except Exception as e:
-            import logging as _logging
-            _logging.exception("carry_out_simple_experiment: unexpected error (exp_id=%s)", exp_id)
-            err = ModExpError(error='Unexpected error: {}'.format(str(e)))
-            event_for_send = err.to_event_dict(exp_id)
+            logging.exception("carry_out_experiment: unexpected error (exp_id=%s)", exp_id)
+            event_for_send = ModExpError(error='Unexpected error: {}'.format(e)).to_event_dict(exp_id)
         finally:
             self.last_experiment_status = self.current_experiment.get_status()
             self.current_experiment = None
-        if event_for_send:
-            send_message_to_storage_webpage(event_for_send)
-
-    def carry_out_advanced_experiment(self, exp_param):
-        self.current_experiment = AdvancedExperiment(_tomograph=self, exp_param=exp_param)
-        self._experiment_starting = False
-        exp_id = self.current_experiment.exp_id
-        event_for_send = None
         try:
-            self.current_experiment.run()
-            event_for_send = create_event(event_type='message', exp_id=exp_id, MoF=SUCCESSFUL_STOP_MSG)
-        except ModExpError as e:
-            event_for_send = e.to_event_dict(exp_id)
-        except Exception as e:
-            import logging as _logging
-            _logging.exception("carry_out_advanced_experiment: unexpected error (exp_id=%s)", exp_id)
-            err = ModExpError(error='Unexpected error: {}'.format(str(e)))
-            event_for_send = err.to_event_dict(exp_id)
-        finally:
-            self.last_experiment_status = self.current_experiment.get_status()
-            self.current_experiment = None
-        if event_for_send:
             send_message_to_storage_webpage(event_for_send)
+        except ModExpError as e:
+            logging.error("carry_out_experiment: could not report finish to storage: %s", e.exception_message)
