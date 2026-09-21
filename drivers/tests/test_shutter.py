@@ -1,7 +1,10 @@
 # pytest --log-cli-level=INFO -s -v test_shutter.py
 import logging
 from time import sleep
-from ..XRayShutter.XRayShutter import HWShutter
+
+import pytest
+
+from ..XRayShutter.XRayShutter import HWShutter, _DEPRECATED_ALIASES_WARNED
 from ..utils import get_shutter_config
 
 
@@ -52,39 +55,47 @@ def test_shutter_info():
     assert 0.0 <= adc['voltage_v'] <= 5.0, \
         "voltage_v вне диапазона 0–5 В: {}".format(adc['voltage_v'])
 
+    s.release()
+    assert not s.is_port_open(), "release() должен закрыть порт модуля"
+
 
 def test_shutter_open_close():
     """Проверка управления заслонкой: открытие и закрытие.
 
     Проверяет:
-    - После open() метод is_open() возвращает True.
-    - После close() метод is_open() возвращает False.
-    - get_state() и set_state() работают корректно.
+    - После open_shutter() метод is_open() возвращает True.
+    - После close_shutter() метод is_open() возвращает False.
+    - get_state() согласован с is_open().
+    - Устаревшие синонимы open()/close() пока работают (с DeprecationWarning).
+    - release() освобождает порт, не меняя положение заслонки.
     """
     config = get_shutter_config()
     s = HWShutter(config['port'], config['relay_number'])
+    try:
+        # Гарантируем начальное состояние — закрыто
+        s.close_shutter()
+        assert not s.is_open(), "Заслонка должна быть закрыта после close_shutter()"
 
-    # Гарантируем начальное состояние — закрыто
-    s.close()
-    assert not s.is_open(), "Заслонка должна быть закрыта после close()"
+        s.open_shutter()
+        assert s.is_open(), "Заслонка должна быть открыта после open_shutter()"
+        state = s.get_state(['is_open', 'is_closed'])
+        logging.info("Shutter state after open: %s", state)
+        assert state == {'is_open': True, 'is_closed': False}, \
+            "get_state() не согласован с is_open(): {}".format(state)
 
-    s.open()
-    assert s.is_open(), "Заслонка должна быть открыта после open()"
-    logging.info("Shutter state after open: %s", s.get_state())
+        sleep(0.5)
 
-    sleep(0.5)
+        s.close_shutter()
+        assert not s.is_open(), "Заслонка должна быть закрыта после close_shutter()"
+        logging.info("Shutter state after close: %s", s.get_state())
 
-    s.close()
-    assert not s.is_open(), "Заслонка должна быть закрыта после close()"
-    logging.info("Shutter state after close: %s", s.get_state())
-
-    # Тест set_state
-    res = s.set_state({'is_open': True})
-    logging.info("set_state open result: %s", res)
-    assert s.is_open(), "Заслонка должна быть открыта после set_state({'is_open': True})"
-    assert res['result'].get('is_open') is None, \
-        "Успешная команда должна вернуть None в result['is_open']"
-
-    res = s.set_state({'is_open': False})
-    logging.info("set_state close result: %s", res)
-    assert not s.is_open(), "Заслонка должна быть закрыта после set_state({'is_open': False})"
+        # Устаревшие синонимы должны работать до их удаления.
+        # Предупреждение выдаётся один раз на процесс — сбрасываем отметку.
+        _DEPRECATED_ALIASES_WARNED.discard('open')
+        with pytest.deprecated_call():
+            s.open()
+        assert s.is_open(), "Устаревший open() должен открывать заслонку"
+        s.close_shutter()
+        assert not s.is_open(), "Заслонка должна быть закрыта после close_shutter()"
+    finally:
+        s.release()

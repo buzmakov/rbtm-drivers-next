@@ -106,7 +106,9 @@ class HWTomograph(object):
 
         Источник НЕ закрываем: он общий на процесс (см. HWSource.get_shared),
         и его закрытие/переоткрытие как раз и дёргает интерфейс генератора.
-        Затвор открывает порт только на время команды — закрывать нечего.
+        Затвор держит serial-порт открытым всё время жизни объекта, поэтому
+        его освобождаем явно через release() (close() у него исторически
+        закрывает заслонку, а не порт — см. HWShutter).
         """
         for name in ('horizontal_motor', 'angle_motor', '_detector'):
             device = getattr(self, name, None)
@@ -117,6 +119,13 @@ class HWTomograph(object):
             except Exception as e:
                 _log.warning('HWTomograph: close(%s) failed: %s', name, e)
             setattr(self, name, None)
+
+        if self.shutter is not None:
+            try:
+                self.shutter.release()
+            except Exception as e:
+                _log.warning('HWTomograph: release(shutter) failed: %s', e)
+            self.shutter = None
 
     def _try_init_detector(self):
         """Попытаться открыть детектор; при ошибке запомнить её и не падать."""
