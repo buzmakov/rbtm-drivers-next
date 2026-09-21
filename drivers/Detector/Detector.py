@@ -28,7 +28,11 @@ DEFAULT_PIXEL_SIZE = 4.25e-3  # pixel size in mm
 # RPC-слой должен брать свой таймаут из expected_frame_timeout_s().
 # ----------------------------------------------------------------------
 SDK_TIMEOUT_FACTOR = 1.5        # запас на чтение матрицы и передачу кадра
-SDK_TIMEOUT_MARGIN_MS = 500.0   # фиксированный запас SDK-таймаута, мс
+# Фиксированный запас SDK-таймаута, мс. Измерено на MH110XC-KK-FA по FireWire S400
+# (robotom, 21.09.2026): кадр 1000 мс занимает ~1.6 с, первый после старта захвата
+# ~2.1 с, т.е. чтение матрицы + запуск ≈ 0.6–1.1 с; с запасом 500 мс превью 100 мс
+# отваливалось по ERROR 10.
+SDK_TIMEOUT_MARGIN_MS = 2000.0
 HARD_TIMEOUT_MARGIN_S = 15.0    # запас watchdog'а поверх SDK-таймаута, с
 
 
@@ -267,10 +271,26 @@ class HWDetector(object):
                     "Detector._reset_trigger: %s failed: %s", what, str(err))
 
     def _apply_exposure(self, exposure_us):
-        """Сменить экспозицию на лету (без stop/start захвата)."""
+        """Сменить экспозицию.
+
+        Сначала на лету (``exposure:direct_update``, без stop/start). Если
+        камера это не поддерживает — MH110XC-KK-FA по FireWire отвечает
+        ERROR 107 «Parameter info not supported» (robotom, 21.09.2026) —
+        один раз перезапускаем захват с новой экспозицией. Это редкое
+        событие (смена экспозиции между dark/empty/data или превью из UI),
+        а не старт/стоп на каждый кадр.
+        """
         if exposure_us == self._current_exposure_us:
             return
-        self.cam.set_exposure_direct(exposure_us)
+        try:
+            self.cam.set_exposure_direct(exposure_us)
+        except xiapi.Xi_error as err:
+            tomo_logger.logger.info(
+                "Detector: смена экспозиции на лету не поддерживается (%s) — "
+                "перезапуск захвата с exposure=%.3f s", str(err), exposure_us / 1e6)
+            self.stop_acquisition()
+            self.start_acquisition(exposure_us / 1e6)
+            return
         self._current_exposure_us = exposure_us
 
     # ------------------------------------------------------------------

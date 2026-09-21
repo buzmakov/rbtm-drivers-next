@@ -272,6 +272,28 @@ def test_exposure_change_without_restart(detector, fake_xiapi):
     assert cam.exposure_us == 20000
 
 
+def test_exposure_change_falls_back_to_restart(detector, fake_xiapi):
+    """direct_update не поддерживается (ERROR 107 на FireWire) → один stop/start с новой экспозицией."""
+    cam = fake_xiapi.camera
+
+    def unsupported(exposure_us):
+        cam.calls.append('set_exposure_direct')
+        raise FakeXiError('ERROR 107: Parameter info not supported')
+    cam.set_exposure_direct = unsupported
+
+    detector.get_frame(0.01)
+    frame = detector.get_frame(0.02)
+    assert frame is not None
+    assert _count(cam, 'set_exposure_direct') == 1
+    assert _count(cam, 'stop_acquisition') == 1
+    assert _count(cam, 'start_acquisition') == 2
+    assert cam.exposure_us == 20000
+    assert cam.acquisition_running
+    # третий кадр с той же экспозицией — без перезапуска
+    detector.get_frame(0.02)
+    assert _count(cam, 'start_acquisition') == 2
+
+
 def test_start_stop_acquisition_idempotent(detector, fake_xiapi):
     """start/stop можно звать повторно — Flask-слой делает это на эксперимент."""
     cam = fake_xiapi.camera
