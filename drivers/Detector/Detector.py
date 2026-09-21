@@ -1,6 +1,5 @@
 # import logging
 import concurrent.futures
-import os
 import sys
 import numpy as np
 
@@ -31,6 +30,60 @@ PIXEL_SIZES = {
 }
 DEFAULT_PIXEL_SIZE = 4.25e-3  # pixel size in mm
 
+# ----------------------------------------------------------------------
+# Таймауты. Одна формула на весь драйвер:
+#     sdk_timeout_ms  = exposure_ms * SDK_TIMEOUT_FACTOR + SDK_TIMEOUT_MARGIN_MS
+#     hard_timeout_s  = sdk_timeout_s + HARD_TIMEOUT_MARGIN_S
+# SDK-таймаут отдаётся в xiGetImage, hard-таймаут — внешнему watchdog'у
+# (xiGetImage при обрыве шины не возвращается даже со своим таймаутом).
+# RPC-слой должен брать свой таймаут из expected_frame_timeout_s().
+# ----------------------------------------------------------------------
+SDK_TIMEOUT_FACTOR = 1.5        # запас на чтение матрицы и передачу кадра
+SDK_TIMEOUT_MARGIN_MS = 500.0   # фиксированный запас SDK-таймаута, мс
+HARD_TIMEOUT_MARGIN_S = 15.0    # запас watchdog'а поверх SDK-таймаута, с
+
+
+def sdk_timeout_ms(exposure_s):
+    """Таймаут для ``xiGetImage`` в миллисекундах."""
+    return int(round(exposure_s * 1e3 * SDK_TIMEOUT_FACTOR + SDK_TIMEOUT_MARGIN_MS))
+
+
+def expected_frame_timeout_s(exposure_s):
+    """Сколько максимум может длиться один кадр, секунды.
+
+    Значение, после которого кадр считается зависшим. RPC-слой обязан
+    ставить свой таймаут больше этого, иначе прокси отвалится раньше,
+    чем драйвер успеет сообщить о зависании.
+    """
+    return sdk_timeout_ms(exposure_s) / 1e3 + HARD_TIMEOUT_MARGIN_S
+
+
+class DetectorHangError(RuntimeError):
+    """``xiGetImage`` не вернулся за отведённое время (зависание SDK/шины).
+
+    Камера после этого непригодна: поток захвата навсегда остался внутри
+    вызова SDK. Драйвер НЕ завершает процесс сам — решение принимает
+    владелец процесса (``tomograph_server``) через колбэк ``on_hang``.
+    """
+
+
+# Колбэк по умолчанию для всех детекторов процесса: вызывается при
+# зависании захвата до выброса DetectorHangError. Устанавливается
+# владельцем процесса через set_on_hang() (см. tomograph_server.py).
+_on_hang_hook = None
+
+
+def set_on_hang(callback):
+    """Задать процессный колбэк на зависание захвата.
+
+    :param callback: ``callable(exc: DetectorHangError)`` или ``None``.
+        Типичная реализация в ``tomograph_server``: сбросить логи и
+        завершить процесс (``os._exit(1)``), чтобы Docker перезапустил
+        контейнер.
+    """
+    global _on_hang_hook
+    _on_hang_hook = callback
+
 
 class HWDetector(object):
     """Драйвер камеры XIMEA xiRAY.
@@ -48,7 +101,13 @@ class HWDetector(object):
     :meth:`_reset_trigger`, и следующий вызов поднимает захват заново.
     """
 
-    def __init__(self):
+    def __init__(self, on_hang=None):
+        """
+        :param on_hang: колбэк ``callable(exc)``, вызываемый при зависании
+            захвата. Если не задан — используется процессный колбэк из
+            :func:`set_on_hang`. Сам драйвер процесс не завершает.
+        """
+        self._on_hang = on_hang
         # create instance for first connected camera
         try:
             self.cam = xiapi.Camera()
@@ -79,6 +138,9 @@ class HWDetector(object):
         self._img = xiapi.Image()
         self._acquisition_active = False
         self._current_exposure_us = None
+        # True после hard timeout: поток захвата навсегда внутри xiGetImage,
+        # трогать камеру больше нельзя (иначе та самая гонка в libm3api).
+        self._hung = False
         # Один долгоживущий поток захвата на весь процесс: xiGetImage всегда
         # вызывается из одного и того же OS-потока.
         self._capture_executor = concurrent.futures.ThreadPoolExecutor(
@@ -102,6 +164,10 @@ class HWDetector(object):
             этом возвращается в известное состояние (триггер выключен,
             захват остановлен).
         """
+        if self._hung:
+            raise DetectorHangError(
+                "Detector: захват завис ранее, требуется перезапуск процесса")
+
         if not use_trigger:
             tomo_logger.logger.warning(
                 "Detector.start_acquisition(use_trigger=False): режим свободного "
@@ -242,9 +308,14 @@ class HWDetector(object):
     # Frame capture
     # ------------------------------------------------------------------
 
-    # Дополнительный запас времени (сек) поверх экспозиции для hard timeout watchdog.
-    # Покрывает время передачи данных, задержки шины, jitter.
-    _HARD_TIMEOUT_MARGIN_S = 15.0
+    @staticmethod
+    def expected_frame_timeout_s(exposure):
+        """Верхняя граница длительности одного кадра, секунды.
+
+        Обёртка над модульной :func:`expected_frame_timeout_s`, чтобы
+        RPC-слой мог получить значение прямо у объекта детектора.
+        """
+        return expected_frame_timeout_s(exposure)
 
     def _capture_one_frame(self, timeout_ms):
         """Захватить один кадр.
@@ -259,33 +330,49 @@ class HWDetector(object):
     def _capture_with_hard_timeout(self, timeout_ms, hard_timeout_s):
         """Захватить кадр с жёстким таймаутом поверх SDK-таймаута.
 
-        При зависании SDK (обрыв шины: xiGetImage не возвращается даже
-        с собственным таймаутом) процесс завершается через ``os._exit(1)``,
-        и Docker (``restart: unless-stopped``) перезапускает контейнер.
+        Захват идёт в единственном долгоживущем потоке — это гарантирует,
+        что ``xiGetImage`` всегда вызывается из одного и того же OS-потока.
 
-        Почему ``os._exit``, а не ``sys.exit``: SystemExit запускал
-        ``atexit``-обработчики, т.е. ``close()`` → ``xiStopAcquisition`` /
-        ``xiCloseDevice`` из главного потока, пока поток захвата всё ещё
-        сидит внутри ``xiGetImage``.
+        При зависании SDK (обрыв шины: xiGetImage не возвращается даже
+        с собственным таймаутом) драйвер НЕ завершает процесс: он помечает
+        детектор как зависший, дёргает колбэк ``on_hang`` (политика владельца
+        процесса — например, ``os._exit(1)`` в ``tomograph_server``, чтобы
+        Docker перезапустил контейнер) и бросает :class:`DetectorHangError`.
+
+        Трогать камеру после этого нельзя: ``xiStopAcquisition`` /
+        ``xiCloseDevice`` из главного потока, пока поток захвата сидит
+        внутри ``xiGetImage``, — это ровно та гонка в libm3api, из-за
+        которой процесс падал по segfault.
         """
         future = self._capture_executor.submit(self._capture_one_frame, timeout_ms)
         try:
             return future.result(timeout=hard_timeout_s)
         except concurrent.futures.TimeoutError:
+            self._hung = True
+            self._acquisition_active = False
             tomo_logger.logger.critical(
-                "Detector: get_image HARD TIMEOUT (%.1fs) — "
-                "зависание шины. Завершаем tomograph_server "
-                "для автоматического перезапуска Docker.",
-                hard_timeout_s,
+                "Detector: get_image HARD TIMEOUT (%.1f s) — зависание SDK/шины. "
+                "Камера непригодна до перезапуска процесса.", hard_timeout_s,
             )
-            for handler in tomo_logger.logger.handlers:
-                try:
-                    handler.flush()
-                except Exception:
-                    pass
-            sys.stdout.flush()
-            sys.stderr.flush()
-            os._exit(1)
+            error = DetectorHangError(
+                "Detector.get_frame(): xiGetImage hang, hard timeout "
+                "{:.1f} s exceeded".format(hard_timeout_s))
+            self._notify_hang(error)
+            raise error
+
+    def _notify_hang(self, error):
+        """Сообщить владельцу процесса о зависании захвата."""
+        callback = self._on_hang if self._on_hang is not None else _on_hang_hook
+        if callback is None:
+            tomo_logger.logger.warning(
+                "Detector: колбэк on_hang не задан — решение о перезапуске "
+                "процесса принимать некому")
+            return
+        try:
+            callback(error)
+        except Exception as err:
+            tomo_logger.logger.error(
+                "Detector: колбэк on_hang упал: %s", str(err))
 
     def get_frame(self, exposure):
         """Захватить один кадр и вернуть его как ``numpy.ndarray`` uint16.
@@ -305,13 +392,19 @@ class HWDetector(object):
         При любой ошибке состояние захвата сбрасывается
         (:meth:`_reset_trigger`), и следующий вызов поднимет захват заново.
 
-        :raises RuntimeError: при любой ошибке захвата.
+        :raises DetectorHangError: если ``xiGetImage`` не вернулся за
+            :func:`expected_frame_timeout_s`.
+        :raises RuntimeError: при любой другой ошибке захвата.
         """
+        if self._hung:
+            # Поток захвата навсегда внутри xiGetImage — новые попытки
+            # только вешают вызывающего ещё на один hard timeout.
+            raise DetectorHangError(
+                "Detector: захват завис ранее, требуется перезапуск процесса")
+
         exposure_us = int(round(exposure * 1e6))
-        # Hard timeout: экспозиция × 2 + запас на transfer jitter
-        hard_timeout_s = exposure * 2 + self._HARD_TIMEOUT_MARGIN_S
-        # get_image() принимает timeout в МИЛЛИСЕКУНДАХ (см. xiapi.py).
-        timeout_ms = int(exposure_us * 1.5 / 1000 + 500)
+        timeout_ms = sdk_timeout_ms(exposure)
+        hard_timeout_s = expected_frame_timeout_s(exposure)
 
         if not self._acquisition_active:
             self.start_acquisition(exposure)
@@ -319,6 +412,8 @@ class HWDetector(object):
         try:
             self._apply_exposure(exposure_us)
             data = self._capture_with_hard_timeout(timeout_ms, hard_timeout_s)
+        except DetectorHangError:
+            raise
         except Exception as err:
             # Ловим ЛЮБОЙ тип исключения (не только Xi_error): иначе
             # MemoryError/RuntimeError оставляли _acquisition_active=True
