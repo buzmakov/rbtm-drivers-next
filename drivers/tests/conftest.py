@@ -1,8 +1,11 @@
 """
 Конфигурация pytest для тестов оборудования.
 
-Автоматически пропускает тесты источника, если serial-порт недоступен
-(нет прав или устройство не подключено).
+Тесты, которым нужен реальный ISOVOLT, запрашивают фикстуру
+``source_port``: она лениво проверяет доступность serial-порта и делает
+``skip``, если порта нет или нет прав. Проверка НЕ открывает порт —
+каждое открытие дёргает линии DTR/RTS генератора — и не выполняется
+на этапе сбора тестов, поэтому offline- и mock-тесты идут везде.
 
 Решение проблемы доступа к serial-порту:
   Вариант A (рекомендуется):
@@ -17,40 +20,34 @@
   Вариант C (если уже сделан usermod, но тест не находит модуль):
     PYTHONPATH=/xtomo pytest --log-cli-level=INFO -s -v drivers/tests/test_source.py
 """
+import os
+
 import pytest
-import serial
+
 from ..utils import get_source_config
 
+_FIX_HINT = (
+    "Fix: sudo usermod -a -G dialout $USER (then re-login). "
+    "Or run inside Docker: docker exec -it rbtm-tomograph-server "
+    "python -m pytest /xtomo/drivers/tests/test_source.py -v -s"
+)
 
-def _source_port_accessible():
-    """Проверить, доступен ли serial-порт источника."""
+
+@pytest.fixture(scope='session')
+def source_port():
+    """Путь к порту источника; ``skip``, если порта нет или нет прав.
+
+    Порт не открывается: проверяются только наличие файла устройства и
+    права на чтение/запись. Открытие оставлено драйверу
+    (``HWSource.get_shared()``), чтобы не дёргать DTR лишний раз.
+    """
     try:
-        config = get_source_config()
-        port = config.get('port', '/dev/ttyUSB0')
-        s = serial.Serial(port, baudrate=9600, timeout=1)
-        s.close()
-        return True, port
-    except serial.SerialException as e:
-        return False, str(e)
+        port = get_source_config()['port']
     except Exception as e:
-        return False, str(e)
+        pytest.skip("Cannot read source config: {}".format(e))
 
-
-def pytest_collection_modifyitems(config, items):
-    """Добавляет маркер skip к тестам источника если порт недоступен."""
-    accessible, reason = _source_port_accessible()
-    if accessible:
-        return
-
-    skip_mark = pytest.mark.skip(
-        reason=(
-            "Serial port not accessible: {}. "
-            "Fix: sudo usermod -a -G dialout $USER (then re-login). "
-            "Or run inside Docker: docker exec -it rbtm-tomograph-server "
-            "python -m pytest /xtomo/drivers/tests/test_source.py -v -s"
-        ).format(reason)
-    )
-
-    for item in items:
-        if "test_source" in item.nodeid:
-            item.add_marker(skip_mark)
+    if not os.path.exists(port):
+        pytest.skip("Serial port {} does not exist. {}".format(port, _FIX_HINT))
+    if not os.access(port, os.R_OK | os.W_OK):
+        pytest.skip("No read/write access to {}. {}".format(port, _FIX_HINT))
+    return port

@@ -12,31 +12,34 @@
 #
 import logging
 import pytest
-from ..XRaySource.XRaySource import HWSource
-from ..utils import get_source_config
+from ..XRaySource.XRaySource import (
+    HWSource,
+    INFORMATIONAL_CODES,
+    INTERLOCK_ERROR_CODES,
+    SourceCommunicationError,
+)
 
 
-# ── Общая фикстура ────────────────────────────────────────────────────────────
+# ── Общие фикстуры ───────────────────────────────────────────────────────────
 
 @pytest.fixture(scope='module')
-def source():
-    """Открыть соединение с реальным источником; закрыть после тестов."""
-    config = get_source_config()
-    logging.info("Source config: %s", config)
-    s = HWSource(config['port'])
-    yield s
-    # Закрытие через atexit, но явно тоже можно
-    try:
-        s.close()
-    except Exception:
-        pass
+def source(source_port):
+    """Общий экземпляр драйвера для реального источника.
+
+    Берётся через ``get_shared()`` — один объект и один открытый порт на
+    процесс. Закрывать его в teardown нельзя: тем же экземпляром пользуются
+    другие тесты и прод-код, а каждое переоткрытие дёргает DTR/RTS
+    генератора. Порт закроется через ``atexit`` при выходе.
+    """
+    s = HWSource.get_shared(source_port)
+    logging.info("Source: port=%s mock=%s", s.tty_name, s.mock)
+    return s
 
 
 @pytest.fixture(scope='module')
 def source_mock():
-    """Источник в mock-режиме — не требует устройства."""
-    config = get_source_config()
-    return HWSource(config['port'], mock=True)
+    """Источник в mock-режиме — не требует ни устройства, ни конфига."""
+    return HWSource('/dev/null-mock', mock=True)
 
 
 # ── Mock-тесты (всегда выполняются, без реального порта) ────────────────────
@@ -51,10 +54,6 @@ class TestSourceMock:
     def test_mock_get_actual_current(self, source_mock):
         c = source_mock.get_actual_current()
         assert c == 20.0, "mock: get_actual_current() должен вернуть 20.0"
-
-    def test_mock_get_actual_power(self, source_mock):
-        p = source_mock.get_actual_power()
-        assert p == 800.0, "mock: get_actual_power() должен вернуть 800.0"
 
     def test_mock_get_nominal_voltage(self, source_mock):
         v = source_mock.get_nominal_voltage()
@@ -77,6 +76,149 @@ class TestSourceMock:
         state = source_mock.get_state(['actual_voltage', 'actual_current'])
         assert 'actual_voltage' in state
         assert 'actual_current' in state
+
+
+# ── Offline-тесты: поддельный serial-порт, железо не нужно ──────────────────
+
+class FakeIsovolt:
+    """Минимальная подделка ``serial.Serial`` для ISOVOLT 3003.
+
+    Ответы задаются словарём ``{команда: [ответ, ...]}`` без завершающего
+    ``\\r``. Если для команды задано несколько ответов, они выдаются по
+    очереди (последний повторяется); если команда не описана — генератор
+    «молчит», и ``read_until()`` возвращает пустую строку, как по таймауту.
+    """
+
+    def __init__(self, responses=None):
+        self.responses = {k: list(v) for k, v in (responses or {}).items()}
+        self.commands = []          # что драйвер отправил, по порядку
+        self._pending = b''
+        self.is_open = True
+        self.dtr = True
+        self.in_waiting = 0
+
+    # -- то, что использует драйвер --------------------------------------
+    def write(self, data):
+        command = data.decode().strip()
+        self.commands.append(command)
+        answers = self.responses.get(command)
+        if answers:
+            answer = answers.pop(0) if len(answers) > 1 else answers[0]
+            self._pending = (answer + '\r').encode()
+        else:
+            self._pending = b''
+        return len(data)
+
+    def read_until(self, terminator=b'\r'):
+        data, self._pending = self._pending, b''
+        return data
+
+    def reset_input_buffer(self):
+        self._pending = b''
+
+    def reset_output_buffer(self):
+        pass
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.is_open = False
+
+
+def make_offline_source(responses=None):
+    """Драйвер, подключённый к ``FakeIsovolt`` вместо настоящего порта."""
+    src = HWSource('/dev/fake-isovolt', mock=True)
+    src.mock = False                      # логика как у реального порта
+    src.serial_port = FakeIsovolt(responses)
+    return src
+
+
+def sr12(code):
+    """Ответ генератора на SR:12: 10 разрядов с ведущими нулями (§8.3.2)."""
+    return '*{:010d}'.format(code)
+
+
+class TestSourceOffline:
+    """Проверка логики драйвера без устройства: коды ошибок, SV, HV."""
+
+    def test_get_error_returns_none_when_no_code(self):
+        src = make_offline_source({'SR:12': [sr12(0)]})
+        assert src.get_error() is None
+
+    def test_get_error_returns_code_and_message(self):
+        src = make_offline_source({'SR:12': [sr12(65)]})
+        error = src.get_error()
+        assert error == {'code': 65, 'message': 'Door contact 2 open'}
+
+    def test_get_error_raises_when_no_answer(self):
+        """«Нет связи» отличается от «нет ошибки»: раньше оба давали None."""
+        src = make_offline_source()           # генератор молчит
+        with pytest.raises(SourceCommunicationError):
+            src.get_error()
+
+    def test_set_voltage_sends_sv_and_updates_cache(self):
+        src = make_offline_source({'SR:12': [sr12(0)], 'SR:01': [sr12(0)]})
+        src.set_voltage(40.0)
+        assert src.serial_port.commands[:2] == ['SV:040000', 'SR:12']
+        assert src.last_voltage_nominal == 40.0
+
+    def test_set_voltage_raises_on_real_error(self):
+        """Код 51 (Preselection out of range) — отказ, кэш не обновляется."""
+        src = make_offline_source({'SR:12': [sr12(51)], 'SR:01': [sr12(0)]})
+        with pytest.raises(RuntimeError):
+            src.set_voltage(40.0)
+        assert src.last_voltage_nominal is None
+
+    def test_set_voltage_accepts_informational_code(self):
+        """76 (Stand-By) — информационный код, а не отказ."""
+        assert 76 in INFORMATIONAL_CODES
+        src = make_offline_source({'SR:12': [sr12(76)], 'SR:01': [sr12(0)]})
+        src.set_voltage(30.0)
+        assert src.last_voltage_nominal == 30.0
+
+    def test_set_current_sends_sc(self):
+        src = make_offline_source({'SR:12': [sr12(0)], 'SR:01': [sr12(0)]})
+        src.set_current(10.0)
+        assert src.serial_port.commands[:2] == ['SC:010000', 'SR:12']
+
+    def test_on_high_voltage_sends_hv1(self):
+        # SR:01 = 64 → бит 6: высокое напряжение включено
+        src = make_offline_source({'SR:12': [sr12(0)],
+                                   'SR:01': [sr12(64)],
+                                   'SR:06': [sr12(0)]})
+        src.on_high_voltage()
+        assert 'HV:1' in src.serial_port.commands
+
+    def test_on_high_voltage_clears_pending_message(self):
+        """Код 118 «Push START button» снимается командой CL с повтором HV:1."""
+        src = make_offline_source({'SR:12': [sr12(118), sr12(0)],
+                                   'SR:01': [sr12(64)],
+                                   'SR:06': [sr12(0)]})
+        src.on_high_voltage()
+        commands = src.serial_port.commands
+        assert 'CL' in commands
+        assert commands.count('HV:1') == 2
+
+    def test_on_high_voltage_fails_when_port_is_dead(self):
+        """Мёртвый порт больше не выглядит как успешное включение ВН."""
+        src = make_offline_source()           # ответов нет вообще
+        with pytest.raises(SourceCommunicationError):
+            src.on_high_voltage()
+
+    def test_get_status_raises_on_communication_failure(self):
+        """Сбой связи — не «идёт прогрев»."""
+        src = make_offline_source()
+        with pytest.raises(SourceCommunicationError):
+            src.get_status()
+
+    def test_get_state_does_not_raise_on_dead_port(self):
+        """get_state() отдаёт ошибку по полю, а не падает целиком."""
+        src = make_offline_source()
+        state = src.get_state(['actual_voltage', 'nominal_voltage', 'status'])
+        assert state['actual_voltage'] == 0.0
+        assert 'error' in state['nominal_voltage']
+        assert 'error' in state['status']
 
 
 # ── Интеграционные тесты (требуют реального устройства) ─────────────────────
@@ -103,7 +245,7 @@ class TestSourceConnection:
         status = source.get_status()
         logging.info("Full status: %s", status)
 
-        expected_sections = ('power status', 'warming status', 'interlock status')
+        expected_sections = ('power status', 'warming status')
         for section in expected_sections:
             assert section in status, \
                 "get_status() должен содержать раздел '{}'".format(section)
@@ -137,17 +279,15 @@ class TestSourceDiagnostics:
     """Диагностика состояния источника: interlock, ошибки, параметры."""
 
     def test_interlock_status(self, source):
-        """Проверка и логирование состояния блокировок."""
+        """Логирование состояния питания/прогрева и цепи блокировок.
+
+        Двери и аварийный останов приходят кодами ошибки SR:12
+        (``INTERLOCK_ERROR_CODES``), а не битами SR:30 — см. руководство §8.5.
+        """
         status = source.get_status()
-        interlock = status['interlock status']
         power = status['power status']
         warming = status['warming status']
 
-        logging.info(
-            "Interlock: door1=%s door2=%s extern_stop=%s emergency_stop=%s",
-            interlock['door 1 ok'], interlock['door 2 ok'],
-            interlock['extern stop ok'], interlock['emergency stop ok'],
-        )
         logging.info(
             "Power: hv_on=%s cooling_ok=%s battery_ok=%s voltage_norm=%s current_norm=%s",
             power['high voltage on'], power['cooling system ok'],
@@ -160,15 +300,13 @@ class TestSourceDiagnostics:
             warming['warming from pc'], warming['warming from kb'],
         )
 
-        # Если interlock открыт — логируем, но не падаем (это диагностика)
-        if not interlock['door 1 ok']:
-            logging.warning("DOOR 1 IS OPEN — interlock will prevent HV on")
-        if not interlock['door 2 ok']:
-            logging.warning("DOOR 2 IS OPEN — interlock will prevent HV on")
-        if not interlock['extern stop ok']:
-            logging.warning("EXTERN STOP is active")
-        if not interlock['emergency stop ok']:
-            logging.warning("EMERGENCY STOP is active")
+        # Если цепь блокировок разомкнута — логируем, но не падаем (это диагностика)
+        error = source.get_error()
+        if error is not None and error['code'] in INTERLOCK_ERROR_CODES:
+            logging.warning("INTERLOCK: code=%d (%s) — HV on will be rejected",
+                            error['code'], error['message'])
+        else:
+            logging.info("Interlock chain: no interlock error code (SR:12 = %s)", error)
 
     def test_error_code_diagnostics(self, source):
         """Читает текущий код ошибки SR:12 и выводит расшифровку."""
@@ -223,12 +361,6 @@ class TestSourceReadings:
         logging.info("Actual current: %.3f mA", c)
         assert isinstance(c, float), "get_actual_current() должен вернуть float"
 
-    def test_get_actual_power(self, source):
-        """get_actual_power() не бросает исключений (soft-fail)."""
-        p = source.get_actual_power()
-        logging.info("Actual power: %.3f W", p)
-        assert isinstance(p, float), "get_actual_power() должен вернуть float"
-
     def test_get_state_full(self, source):
         """get_state() без аргументов возвращает полный набор параметров."""
         state = source.get_state()
@@ -237,7 +369,6 @@ class TestSourceReadings:
             'is_on_high_voltage', 'id', 'tube_name',
             'actual_voltage', 'nominal_voltage',
             'actual_current', 'nominal_current',
-            'actual_power', 'nominal_power',
             'status', 'last_error',
         ]
         for key in expected_keys:
@@ -252,23 +383,17 @@ class TestSourceHighVoltage:
 
     @pytest.fixture(autouse=True)
     def check_interlock(self, source):
-        """Пропустить тест если interlock не позволяет включить ВН."""
-        status = source.get_status()
-        interlock = status['interlock status']
-        # NOTE: emergency_stop_ok исключён из проверки — с пульта генератор
-        # включается даже при активном сигнале E-STOP (SR:30 bit 2).
-        if not all([
-            interlock['door 1 ok'],
-            interlock['door 2 ok'],
-            interlock['extern stop ok'],
-            # interlock['emergency stop ok'],
-        ]):
+        """Пропустить тест, если цепь блокировок не даст включить ВН.
+
+        Состояние дверей и аварийного останова читается кодом ошибки SR:12
+        (руководство §8.5.1), в SR:30 таких битов нет.
+        """
+        error = source.get_error()
+        if error is not None and error['code'] in INTERLOCK_ERROR_CODES:
             pytest.skip(
-                "Interlock open: door1={} door2={} extern_stop={} emergency_stop={}. "
+                "Interlock open: SR:12 = {} ({}). "
                 "Ensure all doors are closed and emergency stop is released.".format(
-                    interlock['door 1 ok'], interlock['door 2 ok'],
-                    interlock['extern stop ok'], interlock['emergency stop ok'],
-                )
+                    error['code'], error['message'])
             )
 
     def test_on_high_voltage(self, source):
