@@ -387,7 +387,11 @@ def experiment_status(tomo_num):
         running = True
         exp_id = exp.exp_id
         se = exp.stop_exception
-        error = (se.exception_message or se.error or None) if se is not None else None
+        # Ручная остановка (кнопка «Закончить» в web) — не ошибка.
+        if se is None or se.stop_msg == SOMEONE_STOP_MSG:
+            error = None
+        else:
+            error = se.exception_message or se.error or None
     elif tomograph._experiment_starting:
         # Окно между /experiment/start (поток уже запущен, mark_experiment_starting
         # выставлен) и присвоением current_experiment в carry_out_experiment():

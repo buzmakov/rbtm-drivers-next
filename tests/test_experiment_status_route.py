@@ -134,3 +134,46 @@ def test_no_experiment_ever_run(app_client):
     assert result['running'] is False
     assert result['error'] is None
     assert result['exp_id'] == ''
+
+
+def test_running_experiment_user_stop_is_not_error(app_client):
+    """Кнопка «Закончить» в web (routes.experiment_stop) — не ошибка: web не должен показывать «Ошибка: unknown»."""
+    from experiment.constants import SOMEONE_STOP_MSG
+    se = ModExpError(error='unknown', stop_msg=SOMEONE_STOP_MSG)
+    app_client._stub.current_experiment = _StubExp(stop_exception=se)
+
+    result = _get_status(app_client)
+    assert result['running'] is True
+    assert result['error'] is None
+
+
+def test_carry_out_experiment_user_stop_leaves_null_error(monkeypatch):
+    """После ручной остановки last_experiment_status['error'] = None, причина всё равно уходит в storage."""
+    from experiment import tomograph as tomograph_mod
+    from experiment.constants import SOMEONE_STOP_MSG
+
+    class _StoppedExp:
+        def __init__(self, _tomograph, exp_param):
+            self.exp_id = exp_param['exp_id']
+
+        def run(self):
+            raise ModExpError(error='unknown', stop_msg=SOMEONE_STOP_MSG)
+
+        def get_status(self):
+            return {'exp_id': self.exp_id, 'frame_num': 2, 'total_frames': 10}
+
+    sent = []
+    monkeypatch.setattr(tomograph_mod, 'Experiment', _StoppedExp)
+    monkeypatch.setattr(tomograph_mod, 'send_message_to_storage_webpage', sent.append)
+
+    tomo = tomograph_mod.Tomograph.__new__(tomograph_mod.Tomograph)
+    tomo.current_experiment = None
+    tomo._experiment_starting = True
+    tomo._starting_exp_id = 'stopped-id'
+    tomo.last_experiment_status = None
+
+    tomo.carry_out_experiment({'exp_id': 'stopped-id', 'advanced': False})
+
+    assert tomo.last_experiment_status['error'] is None
+    assert tomo._experiment_starting is False
+    assert sent and sent[0]['message'] == SOMEONE_STOP_MSG

@@ -3,7 +3,7 @@ import time
 import json
 
 from .experiment import ModExpError, Experiment, AdvancedExperiment, create_event, send_message_to_storage_webpage
-from .constants import SUCCESSFUL_STOP_MSG
+from .constants import SUCCESSFUL_STOP_MSG, SOMEONE_STOP_MSG
 from hwrpc import HardwareClient, HardwareError, HardwareUnavailable, make_redis
 
 from autologging import traced
@@ -414,9 +414,13 @@ class Tomograph:
             # Причина аварийной остановки (если была) — раньше уходила только
             # в storage (event_for_send); /experiment/status тоже должен её
             # показывать (ключ 'error'). None — эксперимент завершился штатно.
-            self.last_experiment_status['error'] = (
-                event_for_send.get('exception message') or event_for_send.get('error') or None
-            )
+            # Ручная остановка (SOMEONE_STOP_MSG) — штатное завершение, не ошибка.
+            if event_for_send.get('message') in (SUCCESSFUL_STOP_MSG, SOMEONE_STOP_MSG):
+                self.last_experiment_status['error'] = None
+            else:
+                self.last_experiment_status['error'] = (
+                    event_for_send.get('exception message') or event_for_send.get('error') or None
+                )
             self.current_experiment = None
         try:
             send_message_to_storage_webpage(event_for_send)
