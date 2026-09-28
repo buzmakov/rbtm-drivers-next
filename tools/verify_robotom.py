@@ -6,6 +6,8 @@
     python tools/verify_robotom.py                      # A–H: без ВН, моторы и затвор двигаются
     python tools/verify_robotom.py --restart-server     # + I: останавливает rbtm-tomograph-server на ~1 мин
     python tools/verify_robotom.py --with-hv            # + J, K: включает ВН (прогрев до 30 мин) и короткий эксперимент
+                                                        #   K создаёт в storage эксперимент specimen='verify_robotom (smoke test)',
+                                                        #   tags='smoke-test' — после проверки его можно удалить через rbtm-web
 
 Ничего не импортирует из драйверов — только requests/numpy. Логи читаются по ssh
 (read-only), docker stop/start — только с --restart-server.
@@ -329,9 +331,19 @@ def check_k_short_experiment(api, remote):
     rc0 = remote.restart_count()
     errors0 = remote.server_log_grep('SERVER ERROR')
     exp_id = 'smoke-{}'.format(uuid.uuid4())
-    params = dict(EXPERIMENT)
-    params['exp_id'] = exp_id
-    r = api.post('/experiment/start', {'exp_id': exp_id, 'experiment parameters': params}, timeout=60)
+    # Поля верхнего уровня — как у rbtm-web (experiment/views.py experiment_interface):
+    # без timestamp/datetime/specimen документ в storage ломал список в rbtm-recon
+    # (KeyError 'timestamp') и страницу эксперимента в rbtm-web.
+    # exp_id внутрь 'experiment parameters' не кладём: drivers добавляет его сам.
+    start_body = {
+        'exp_id': exp_id,
+        'specimen': 'verify_robotom (smoke test)',
+        'tags': 'smoke-test',
+        'timestamp': time.time(),
+        'datetime': time.strftime('%d.%m.%Y %H:%M:%S'),
+        'experiment parameters': dict(EXPERIMENT),
+    }
+    r = api.post('/experiment/start', start_body, timeout=60)
     payload = r.json()
     if not payload.get('success'):
         raise Check('start: {}'.format(payload))
