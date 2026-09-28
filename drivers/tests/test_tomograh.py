@@ -1,7 +1,19 @@
-# pytest --log-cli-level=INFO -s -v test_tomograh.py
+# pytest --log-cli-level=INFO -s -v -m hardware drivers/tests/test_tomograh.py
+#
+# Требуется подключённое оборудование и остановленный tomograph_server.
 import logging
 from pprint import pformat
-from ..Tomograph.Tomograph import HWTomograph
+
+import numpy as np
+import pytest
+
+try:
+    from ..Tomograph.Tomograph import HWTomograph
+except (ImportError, SystemExit) as err:  # нет pyximc/XIMEA SDK
+    pytest.skip("Hardware drivers are not available: {}".format(err),
+                allow_module_level=True)
+
+pytestmark = pytest.mark.hardware
 
 
 # Ожидаемые ключи в ответе get_state() для каждого устройства
@@ -54,3 +66,43 @@ def test_tomograph_state():
         for key in expected_keys:
             assert key in device_state, \
                 "В состоянии устройства '{}' отсутствует ключ '{}'".format(device, key)
+
+
+def test_tomograph_capture_frame():
+    """Кадр и метаданные одним вызовом HWTomograph.capture_frame().
+
+    Проверяет структуру метаданных — ровно ту, что Flask-слой раньше
+    собирал десятком отдельных RPC (get_detector_frame_metadata):
+    - image_data: timestamp, datetime, exposure (мс), detector{model,
+      pixel_size}, chip_temp, hous_temp;
+    - object: angle position, horizontal position (present и vertical
+      position добавляет Flask — их здесь быть не должно);
+    - shutter: open;
+    - X-ray source: voltage, current.
+    """
+    t = HWTomograph(mock=True)
+    try:
+        image, metadata = t.capture_frame(0.1)
+    finally:
+        t._release_devices()
+
+    assert isinstance(image, np.ndarray) and image.dtype == np.uint16, \
+        "capture_frame() должен вернуть кадр uint16"
+    assert image.ndim == 2 and image.shape[0] > 0 and image.shape[1] > 0
+
+    logging.info("Frame metadata:\n%s", pformat(metadata))
+
+    for section in ('image_data', 'object', 'shutter', 'X-ray source'):
+        assert section in metadata, "нет раздела '{}'".format(section)
+
+    image_data = metadata['image_data']
+    for key in ('timestamp', 'datetime', 'exposure', 'detector',
+                'chip_temp', 'hous_temp'):
+        assert key in image_data, "нет ключа image_data['{}']".format(key)
+    assert set(image_data['detector']) == {'model', 'pixel_size'}
+    assert image_data['detector']['pixel_size'] > 0
+
+    assert set(metadata['object']) == {'angle position', 'horizontal position'}, \
+        "present и vertical position принадлежат Flask-слою"
+    assert set(metadata['shutter']) == {'open'}
+    assert set(metadata['X-ray source']) == {'voltage', 'current'}

@@ -6,7 +6,4 @@ numpy
 scipy
 matplotlib
 autologging
-cachetools
-waitress
 redis
-ipython

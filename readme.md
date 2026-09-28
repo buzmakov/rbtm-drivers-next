@@ -16,7 +16,7 @@ rbtm-drivers-next/
 │   └── tests/                   # Тесты оборудования
 ├── experiment/                  # Flask API и логика эксперимента
 ├── tomograph_server.py          # Отдельный процесс работы с железом
-└── redis_proxy.py               # Redis-прокси для межпроцессного взаимодействия
+└── hwrpc.py                     # RPC Flask ↔ tomograph_server через Redis
 ```
 
 ## Запуск
@@ -38,24 +38,30 @@ rbtm-web (Django) ──HTTP──► rbtm-drivers-next (Flask :5001)
                           │                       │
                     Tomograph (Flask)   tomograph_server.py
                           │                       │
-                    RedisProxy ◄──Redis──► HWTomograph (реальное железо)
+                 HardwareClient ◄──Redis──► HardwareServer → HWTomograph (железо)
 ```
 
+`tomograph_server` владеет единственным `HWTomograph`; Flask ничего не создаёт на стороне железа,
+а вызывает методы по имени (`hw.call('source.off_high_voltage')`). Если процесс железа упал
+(например, segfault в xiAPI), Docker перезапускает его, Flask получает `HardwareUnavailable`
+и продолжает работать; `/state` в это время отдаёт `unavailable`. Логи RPC: `logs/hwrpc_server.log`
+(в нём же все `logging.*` драйверов) и `logs/hwrpc_main.log`.
+
 - **`experiment/routes.py`** — Flask Blueprint, HTTP API
-- **`experiment/tomograph.py`** — `Tomograph` класс, проксирует команды через Redis
+- **`experiment/tomograph.py`** — `Tomograph` класс, валидация параметров и вызовы железа через `hwrpc.HardwareClient`
 - **`experiment/experiment.py`** — логика проведения эксперимента (`Experiment`, `AdvancedExperiment`)
-- **`tomograph_server.py`** — отдельный процесс, работает напрямую с `HWTomograph` через `RedisProxyServer`
+- **`tomograph_server.py`** — отдельный процесс, владеет `HWTomograph` и обслуживает очередь `hwrpc.HardwareServer`
 
 ---
 
 ## Драйверы оборудования
 
-Низкоуровневые драйверы находятся в пакете [`drivers/`](drivers/). Каждый драйвер реализует интерфейс `get_state()` / `set_state()` для унифицированного доступа к устройству.
+Низкоуровневые драйверы находятся в пакете [`drivers/`](drivers/). Каждый драйвер реализует `get_state()` для унифицированного чтения состояния; `HWTomograph.capture_frame()` собирает кадр и метаданные одним вызовом.
 
 | Устройство | Класс | Документация |
 |---|---|---|
 | Детектор XIMEA xiRAY | [`HWDetector`](drivers/Detector/Detector.py) | [drivers/Detector/README.md](drivers/Detector/README.md) |
-| Шаговый мотор XIMC | [`HWMotor`](drivers/Motors/Motor.py) | [drivers/Motors/README.md](drivers/Motors/README.md) |
+| Шаговые моторы XIMC | [`HWRotaryMotor`, `HWLinearMotor`](drivers/Motors/Motor.py) | [drivers/Motors/README.md](drivers/Motors/README.md) |
 | Заслонка Ke-USB24R | [`HWShutter`](drivers/XRayShutter/XRayShutter.py) | [drivers/XRayShutter/README.md](drivers/XRayShutter/README.md) |
 | Источник ISOVOLT 3003 | [`HWSource`](drivers/XRaySource/XRaySource.py) | [drivers/XRaySource/README.md](drivers/XRaySource/README.md) |
 | Томограф (агрегатор) | [`HWTomograph`](drivers/Tomograph/Tomograph.py) | — |
@@ -72,10 +78,11 @@ speed        = 500
 acceleration = 500
 
 [horizontal motor]
-port                = xi-com:///dev/ximc/00000271
-speed               = 200
-acceleration        = 200
-move_object_outside = -4200
+port                   = xi-com:///dev/ximc/00000271
+speed                  = 200
+acceleration           = 200
+steps_per_mm           = 199.46
+move_object_outside_mm = -21.06
 
 [shutter]
 port  = /dev/ttyACM2
@@ -83,6 +90,7 @@ relay = 4
 
 [x-ray source]
 port = /dev/ttyUSB0
+mock = false
 ```
 
 ### Тесты оборудования
@@ -221,7 +229,7 @@ total_frames = (
 ### Состояние томографа
 | Метод | URL | Описание |
 |---|---|---|
-| GET | `/tomograph/<n>/state` | Состояние: `ready` / `experiment` / `unavailable` |
+| GET | `/tomograph/<n>/state` | Состояние: `ready` / `experiment` / `unavailable` (сервер железа не отвечает или железо не инициализировалось) |
 
 ### Эксперимент
 | Метод | URL | Описание |
@@ -236,17 +244,26 @@ total_frames = (
 |---|---|---|
 | POST | `/tomograph/<n>/detector/get-frame-preview` | Превью кадра (npz, downsampled) |
 | GET | `/tomograph/<n>/detector/model` | Модель детектора |
+| POST | `/tomograph/<n>/detector/get-frame` | Кадр с открытым затвором (png) |
+| POST | `/tomograph/<n>/detector/get-frame-with-closed-shutter` | Кадр с закрытым затвором (png) |
+| GET | `/tomograph/<n>/detector/chip_temp` | Температура сенсора |
+| GET | `/tomograph/<n>/detector/hous_temp` | Температура корпуса |
 
 ### Двигатели, затвор, источник
 | Метод | URL | Описание |
 |---|---|---|
 | POST | `/tomograph/<n>/motor/set-angle-position` | Установить угол |
 | GET | `/tomograph/<n>/motor/get-angle-position` | Текущий угол |
+| POST | `/tomograph/<n>/motor/set-horizontal-position` | Горизонтальная позиция (шаги) |
+| GET | `/tomograph/<n>/motor/get-horizontal-position` | Текущая горизонтальная позиция |
+| POST | `/tomograph/<n>/motor/set-vertical-position` | Вертикальная позиция (заглушка, мотора нет) |
+| GET | `/tomograph/<n>/motor/get-vertical-position` | Вертикальная позиция (заглушка) |
 | GET | `/tomograph/<n>/motor/reset-angle-position` | Сбросить угол в 0 |
 | GET | `/tomograph/<n>/motor/move-away` | Убрать образец из пучка |
 | GET | `/tomograph/<n>/motor/move-back` | Вернуть образец в пучок |
 | GET | `/tomograph/<n>/shutter/open/0` | Открыть затвор |
 | GET | `/tomograph/<n>/shutter/close/0` | Закрыть затвор |
+| GET | `/tomograph/<n>/shutter/state` | Состояние затвора |
 | GET | `/tomograph/<n>/source/power-on` | Включить рентген (async, запускает прогрев при необходимости) |
 | GET | `/tomograph/<n>/source/power-off` | Выключить рентген |
 | GET | `/tomograph/<n>/source/state` | Состояние источника: `on`, `busy`, `mocked`, `warming_status` |
@@ -268,6 +285,8 @@ total_frames = (
     "current_mode":  "data",
     "current_angle": 51.84,
     "elapsed_sec":   320.5,
+    "last_frame_at": 1758480123.4,
+    "error":         null,
     "timeline": [
       {"mode": "dark",       "count": 10},
       {"mode": "empty",      "count": 10},
@@ -276,3 +295,13 @@ total_frames = (
   }
 }
 ```
+
+- `error` — причина аварийной остановки эксперимента (`stop_exception`/сообщение
+  стопа) или `null`, если эксперимент идёт штатно или завершился успешно.
+- `elapsed_sec` для уже завершённого эксперимента (`running: false`, есть
+  `last_experiment_status`) считается от `start_time` до момента завершения
+  `run()`, а не от текущего времени — не растёт после конца съёмки.
+- Сразу после `/experiment/start` (поток эксперимента запущен, но объект
+  эксперимента ещё не создан) статус отдаётся с `running: true`,
+  `current_mode: "pending"`, `frame_num: 0` и пустым `timeline` — вместо
+  статуса предыдущего эксперимента с `running: false`.
