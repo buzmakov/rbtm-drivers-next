@@ -43,7 +43,8 @@ port                   = xi-com:///dev/ximc/00000271
 speed                  = 200
 acceleration           = 200
 steps_per_mm           = 199.46      ; 1 шаг = 5.0136 мкм
-move_object_outside_mm = -21.06      ; позиция парковки в мм (≈ -4200 шагов)
+move_object_outside_mm = -30.0       ; позиция парковки в мм (≈ -5984 шагов; до 01.10.2026 было -21.06 —
+                                     ; образец в эппендорфе выходил из поля не целиком)
 ```
 
 Конфиг читается через [`utils.get_angle_motor_config()`](../utils.py) и [`utils.get_horizontal_motor_config()`](../utils.py).
